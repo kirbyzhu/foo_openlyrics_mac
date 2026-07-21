@@ -1,5 +1,5 @@
 #pragma once
-#include "ports/HttpClient.h"  // 复用 TrackMeta
+#include "model/TrackMeta.h"
 #include <string>
 
 namespace openlyrics {

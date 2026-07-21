@@ -1,4 +1,5 @@
 #include "parser/LrcSerializer.h"
+#include <cstdint>
 #include <cstdio>
 
 namespace openlyrics {
