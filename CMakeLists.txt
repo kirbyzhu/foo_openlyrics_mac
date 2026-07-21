@@ -11,12 +11,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 
-add_library(openlyrics_core INTERFACE)
-target_include_directories(openlyrics_core INTERFACE extensions/foo_openlyrics_mac/core)
+add_library(openlyrics_core STATIC
+  extensions/foo_openlyrics_mac/core/parser/LrcParser.cpp
+)
+target_include_directories(openlyrics_core PUBLIC extensions/foo_openlyrics_mac/core)
 
 enable_testing()
 add_executable(core_tests
   tests/test_smoke.cpp
+  tests/test_lrc_parser.cpp
 )
 target_link_libraries(core_tests PRIVATE openlyrics_core GTest::gtest_main)
 
