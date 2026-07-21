@@ -1,10 +1,26 @@
 #include "parser/LrcParser.h"
 #include <algorithm>
 #include <cctype>
+#include <exception>
 #include <sstream>
 
 namespace openlyrics {
 namespace {
+
+// 安全转换为 int64，非法或超出范围返回 false，成功写 out。
+// 允许可选前导 +/- 号，其余须为十进制数字，且整串被完整消费。
+bool toInt64(const std::string& s, int64_t& out) {
+    if (s.empty()) return false;
+    try {
+        size_t pos = 0;
+        long long v = std::stoll(s, &pos);
+        if (pos != s.size()) return false;  // 拒绝尾随非数字字符
+        out = static_cast<int64_t>(v);
+        return true;
+    } catch (const std::exception&) {
+        return false;  // invalid_argument 或 out_of_range
+    }
+}
 
 // 尝试把 [xx:yy.zz] / [xx:yy] 解析为毫秒。成功返回 true 并写 outMs。
 bool parseTimeTag(const std::string& body, int64_t& outMs) {
@@ -26,13 +42,14 @@ bool parseTimeTag(const std::string& body, int64_t& outMs) {
     for (char c : ss) if (!std::isdigit((unsigned char)c)) return false;
     for (char c : frac) if (!std::isdigit((unsigned char)c)) return false;
 
-    int64_t minutes = std::stoll(mm);
-    int64_t seconds = std::stoll(ss);
+    int64_t minutes, seconds;
+    if (!toInt64(mm, minutes)) return false;
+    if (!toInt64(ss, seconds)) return false;
     int64_t fracMs = 0;
     if (!frac.empty()) {
         // 归一到毫秒：补齐/截断到 3 位
         std::string f3 = (frac + "000").substr(0, 3);
-        fracMs = std::stoll(f3);
+        if (!toInt64(f3, fracMs)) return false;
     }
     outMs = (minutes * 60 + seconds) * 1000 + fracMs;
     return true;
@@ -43,20 +60,6 @@ std::string trim(const std::string& s) {
     if (a == std::string::npos) return "";
     size_t b = s.find_last_not_of(" \t\r\n");
     return s.substr(a, b - a + 1);
-}
-
-// 验证字符串是否为有效的整数（可选的 +/- 符号后跟一个或多个数字）
-bool isValidInteger(const std::string& s) {
-    if (s.empty()) return false;
-    size_t i = 0;
-    if (s[0] == '+' || s[0] == '-') {
-        i = 1;
-    }
-    if (i >= s.size()) return false;  // 仅有符号，无数字
-    for (size_t j = i; j < s.size(); ++j) {
-        if (!std::isdigit((unsigned char)s[j])) return false;
-    }
-    return true;
 }
 
 }  // namespace
@@ -87,8 +90,9 @@ LyricData LrcParser::parse(const std::string& text) {
                     std::string val = body.substr(c + 1);
                     if (key == "offset") {
                         std::string trimmedVal = trim(val);
-                        if (isValidInteger(trimmedVal)) {
-                            data.offsetMs = std::stoll(trimmedVal);
+                        int64_t offsetVal = 0;
+                        if (toInt64(trimmedVal, offsetVal)) {
+                            data.offsetMs = offsetVal;
                         }
                         // 若非法则忽略此标签，offsetMs 保持默认值 0
                     } else {
