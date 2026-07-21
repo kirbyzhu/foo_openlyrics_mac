@@ -45,6 +45,20 @@ std::string trim(const std::string& s) {
     return s.substr(a, b - a + 1);
 }
 
+// 验证字符串是否为有效的整数（可选的 +/- 符号后跟一个或多个数字）
+bool isValidInteger(const std::string& s) {
+    if (s.empty()) return false;
+    size_t i = 0;
+    if (s[0] == '+' || s[0] == '-') {
+        i = 1;
+    }
+    if (i >= s.size()) return false;  // 仅有符号，无数字
+    for (size_t j = i; j < s.size(); ++j) {
+        if (!std::isdigit((unsigned char)s[j])) return false;
+    }
+    return true;
+}
+
 }  // namespace
 
 LyricData LrcParser::parse(const std::string& text) {
@@ -72,7 +86,11 @@ LyricData LrcParser::parse(const std::string& text) {
                     std::string key = body.substr(0, c);
                     std::string val = body.substr(c + 1);
                     if (key == "offset") {
-                        data.offsetMs = std::stoll(trim(val));
+                        std::string trimmedVal = trim(val);
+                        if (isValidInteger(trimmedVal)) {
+                            data.offsetMs = std::stoll(trimmedVal);
+                        }
+                        // 若非法则忽略此标签，offsetMs 保持默认值 0
                     } else {
                         data.tags.emplace_back(key, val);
                     }

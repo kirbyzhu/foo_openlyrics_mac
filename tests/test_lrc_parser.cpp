@@ -19,3 +19,22 @@ TEST(LrcParser, PlainTextFallback) {
     EXPECT_EQ(d.lines[0].text, "just a line");
     EXPECT_EQ(d.lines[1].text, "another line");
 }
+
+TEST(LrcParser, MalformedOffsetIgnoredNoThrow) {
+    LyricData d;
+    EXPECT_NO_THROW({ d = LrcParser::parse("[offset:auto]\n[00:01.00]x"); });
+    EXPECT_EQ(d.offsetMs, 0);
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_EQ(d.lines[0].timeMs, 1000);
+}
+
+TEST(LrcParser, EmptyOffsetIgnoredNoThrow) {
+    LyricData d;
+    EXPECT_NO_THROW({ d = LrcParser::parse("[offset:]\n[00:02.00]y"); });
+    EXPECT_EQ(d.offsetMs, 0);
+}
+
+TEST(LrcParser, ValidSignedOffsetParsed) {
+    LyricData d = LrcParser::parse("[offset:+250]\n[00:00.00]z");
+    EXPECT_EQ(d.offsetMs, 250);
+}
