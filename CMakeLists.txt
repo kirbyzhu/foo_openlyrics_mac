@@ -13,6 +13,7 @@ FetchContent_MakeAvailable(googletest)
 
 add_library(openlyrics_core STATIC
   extensions/foo_openlyrics_mac/core/parser/LrcParser.cpp
+  extensions/foo_openlyrics_mac/core/parser/LrcSerializer.cpp
 )
 target_include_directories(openlyrics_core PUBLIC extensions/foo_openlyrics_mac/core)
 
@@ -20,6 +21,7 @@ enable_testing()
 add_executable(core_tests
   tests/test_smoke.cpp
   tests/test_lrc_parser.cpp
+  tests/test_lrc_serializer.cpp
 )
 target_link_libraries(core_tests PRIVATE openlyrics_core GTest::gtest_main)
 
