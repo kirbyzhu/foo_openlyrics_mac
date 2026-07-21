@@ -36,11 +36,26 @@ file(GLOB FB2K_HELPERS_MAC_OBJC ${FB2K_SDK_ROOT}/foobar2000/helpers-mac/*.mm ${F
 # --- foobar2000_component_client（必编，供组件导出表使用）---
 set(FB2K_COMPONENT_CLIENT_CPP ${FB2K_SDK_ROOT}/foobar2000/foobar2000_component_client/component_client.cpp)
 
-set(FB2K_SDK_OBJC_SRC ${FB2K_PFC_OBJC} ${FB2K_SDK_OBJC} ${FB2K_HELPERS_MAC_OBJC})
+# --- foobar2000/shared（Plan 2 Task 2 新增：uBugCheck/GetInfiniteWaitEvent/uPrintfV/
+# fb2k::crashWithMessage 等符号的实现，链接真正的可加载 bundle 时才会触发这些未定义符号；
+# Task 1 的探针范围未纳入。按 shared.xcodeproj 的 mac target "in Sources" 名单核对，
+# 只编入以下 5 个文件，其余（filedialogs*/minidump/modal_dialog/systray/text_drawing/
+# Utility/utf8api/win32_misc）均为 Windows 专属，不在该名单内。）---
+set(FB2K_SHARED_ROOT ${FB2K_SDK_ROOT}/foobar2000/shared)
+set(FB2K_SHARED_CPP
+  ${FB2K_SHARED_ROOT}/stdafx.cpp
+  ${FB2K_SHARED_ROOT}/utf8.cpp
+  ${FB2K_SHARED_ROOT}/shared-nix.cpp
+  ${FB2K_SHARED_ROOT}/audio_math.cpp
+)
+set(FB2K_SHARED_OBJC ${FB2K_SHARED_ROOT}/shared-apple.mm)
+
+set(FB2K_SDK_OBJC_SRC ${FB2K_PFC_OBJC} ${FB2K_SDK_OBJC} ${FB2K_HELPERS_MAC_OBJC} ${FB2K_SHARED_OBJC})
 set(FB2K_SDK_ALL_SRC
   ${FB2K_PFC_CPP}
   ${FB2K_SDK_CPP}
   ${FB2K_HELPERS_CPP}
+  ${FB2K_SHARED_CPP}
   ${FB2K_SDK_OBJC_SRC}
   ${FB2K_COMPONENT_CLIENT_CPP}
 )

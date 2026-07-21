@@ -21,6 +21,52 @@ target_include_directories(openlyrics_core PUBLIC extensions/foo_openlyrics_mac/
 # Plan 2 Task 1：foobar2000 macOS SDK 构建探针（fb2k_sdk 静态库），与上面的 Plan 1 核心目标相互独立。
 if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
   add_subdirectory(extensions/foo_openlyrics_mac/platform)
+
+  # Plan 2 Task 2：最小可加载 ui_element_mac 面板，打包为 foo_openlyrics.component。
+  # MODULE 库在 Apple 平台默认以 -bundle 方式链接（产出 MH_BUNDLE 类型 Mach-O），
+  # 契合 foobar2000 组件加载器所需的可加载 bundle 二进制；PREFIX/SUFFIX 清空后
+  # 产物文件名恰为 foo_openlyrics，直接放进 Contents/MacOS/ 即可，不走 CMake 自带的
+  # MACOSX_BUNDLE/BUNDLE 自动打包（其 Info.plist 变量替换约定与本项目固定字面量键值
+  # 不完全对应），改为手工组装 .component 目录结构，行为更可控。
+  add_library(foo_openlyrics MODULE
+    extensions/foo_openlyrics_mac/platform/component_entry.mm
+    extensions/foo_openlyrics_mac/ui/LyricPanelController.mm
+  )
+  set_target_properties(foo_openlyrics PROPERTIES
+    PREFIX ""
+    SUFFIX ""
+    OUTPUT_NAME "foo_openlyrics"
+  )
+  set_source_files_properties(
+    extensions/foo_openlyrics_mac/platform/component_entry.mm
+    extensions/foo_openlyrics_mac/ui/LyricPanelController.mm
+    PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+  )
+  target_include_directories(foo_openlyrics PRIVATE
+    # class-suffix.h、stdafx.h
+    extensions/foo_openlyrics_mac/platform
+    # LyricPanelController.h（component_entry.mm 以 #import "LyricPanelController.h" 引用）
+    extensions/foo_openlyrics_mac/ui
+    # foobar2000-mac-helpers.h（FB2K_OBJC_CLASS 宏），fb2k_sdk 未把该目录设为 PUBLIC include 根
+    ${CMAKE_SOURCE_DIR}/SDK-2025-03-07/foobar2000/helpers-mac
+  )
+  target_link_libraries(foo_openlyrics PRIVATE fb2k_sdk openlyrics_core)
+
+  set(FOO_OPENLYRICS_BUNDLE "${CMAKE_CURRENT_BINARY_DIR}/foo_openlyrics.component")
+  configure_file(
+    extensions/foo_openlyrics_mac/platform/Info.plist.in
+    "${FOO_OPENLYRICS_BUNDLE}/Contents/Info.plist"
+    @ONLY
+  )
+  add_custom_command(TARGET foo_openlyrics POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${FOO_OPENLYRICS_BUNDLE}/Contents/MacOS"
+    COMMAND ${CMAKE_COMMAND} -E copy
+            "$<TARGET_FILE:foo_openlyrics>"
+            "${FOO_OPENLYRICS_BUNDLE}/Contents/MacOS/foo_openlyrics"
+    COMMAND codesign --force --deep --sign - "${FOO_OPENLYRICS_BUNDLE}"
+    COMMENT "组装 foo_openlyrics.component 并 ad-hoc 签名"
+    VERBATIM
+  )
 endif()
 
 enable_testing()
