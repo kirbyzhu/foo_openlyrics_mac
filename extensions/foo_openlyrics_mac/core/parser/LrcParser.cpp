@@ -117,14 +117,14 @@ LyricData LrcParser::parse(const std::string& text) {
                 line.text = content;
                 data.lines.push_back(line);
             }
-        } else if (!consumed) {
-            // 无任何标签，纯文本行（含空行）
+        } else if (!consumed || !content.empty()) {
+            // 无标签、或消费了标签但有非空剩余内容时，作为纯文本行
             LyricLine line;
             line.timeMs = -1;
             line.text = content;
             data.lines.push_back(line);
         }
-        // consumed 但无 time（纯 id 标签行）不产出歌词行
+        // consumed 但无 time 且 content 为空（纯 id 标签行）不产出歌词行
     }
 
     data.synced = std::any_of(data.lines.begin(), data.lines.end(),

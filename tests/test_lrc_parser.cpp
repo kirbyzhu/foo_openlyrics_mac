@@ -67,3 +67,56 @@ TEST(LrcParser, NegativeOffsetParsed) {
     LyricData d = LrcParser::parse("[offset:-500]\n[00:00.00]z");
     EXPECT_EQ(d.offsetMs, -500);
 }
+
+TEST(LrcParser, MultipleTimestampsExpandToLines) {
+    LyricData d = LrcParser::parse("[00:01.00][00:03.00]repeat");
+    ASSERT_EQ(d.lines.size(), 2u);
+    EXPECT_EQ(d.lines[0].timeMs, 1000);
+    EXPECT_EQ(d.lines[1].timeMs, 3000);
+    EXPECT_EQ(d.lines[0].text, "repeat");
+    EXPECT_EQ(d.lines[1].text, "repeat");
+}
+
+TEST(LrcParser, OffsetTagParsed) {
+    LyricData d = LrcParser::parse("[offset:-500]\n[00:02.00]line");
+    EXPECT_EQ(d.offsetMs, -500);
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_EQ(d.lines[0].timeMs, 2000);
+}
+
+TEST(LrcParser, IdTagsCollected) {
+    LyricData d = LrcParser::parse("[ti:Song]\n[ar:Artist]\n[00:00.00]x");
+    ASSERT_EQ(d.tags.size(), 2u);
+    EXPECT_EQ(d.tags[0].first, "ti");
+    EXPECT_EQ(d.tags[0].second, "Song");
+    EXPECT_EQ(d.tags[1].first, "ar");
+    EXPECT_EQ(d.tags[1].second, "Artist");
+}
+
+TEST(LrcParser, LinesSortedAscending) {
+    LyricData d = LrcParser::parse("[00:05.00]b\n[00:01.00]a");
+    ASSERT_EQ(d.lines.size(), 2u);
+    EXPECT_EQ(d.lines[0].text, "a");
+    EXPECT_EQ(d.lines[1].text, "b");
+}
+
+TEST(LrcParser, MalformedBracketTreatedAsText) {
+    LyricData d = LrcParser::parse("[not a time]still text");
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_FALSE(d.synced);
+    EXPECT_EQ(d.lines[0].timeMs, -1);
+    // [not a time] 含冒号，被当作 id 标签 key="not a time"，正文为剩余
+    EXPECT_EQ(d.lines[0].text, "still text");
+}
+
+TEST(LrcParser, EmptyInput) {
+    LyricData d = LrcParser::parse("");
+    EXPECT_TRUE(d.lines.empty());
+    EXPECT_FALSE(d.synced);
+}
+
+TEST(LrcParser, ThreeDigitFraction) {
+    LyricData d = LrcParser::parse("[00:01.005]x");
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_EQ(d.lines[0].timeMs, 1005);
+}
