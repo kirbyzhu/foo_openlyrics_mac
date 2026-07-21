@@ -24,6 +24,7 @@ add_executable(core_tests
   tests/test_lrc_parser.cpp
   tests/test_lrc_serializer.cpp
   tests/test_sync_engine.cpp
+  tests/test_ports.cpp
 )
 target_link_libraries(core_tests PRIVATE openlyrics_core GTest::gtest_main)
 
