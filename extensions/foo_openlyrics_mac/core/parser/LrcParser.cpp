@@ -117,11 +117,11 @@ LyricData LrcParser::parse(const std::string& text) {
                 line.text = content;
                 data.lines.push_back(line);
             }
-        } else if (!consumed || !content.empty()) {
+        } else if (!consumed || !trim(content).empty()) {
             // 无标签、或消费了标签但有非空剩余内容时，作为纯文本行
             LyricLine line;
             line.timeMs = -1;
-            line.text = content;
+            line.text = content;   // 保留原始内容，仅判空时 trim
             data.lines.push_back(line);
         }
         // consumed 但无 time 且 content 为空（纯 id 标签行）不产出歌词行

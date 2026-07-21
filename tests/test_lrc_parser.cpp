@@ -91,6 +91,8 @@ TEST(LrcParser, IdTagsCollected) {
     EXPECT_EQ(d.tags[0].second, "Song");
     EXPECT_EQ(d.tags[1].first, "ar");
     EXPECT_EQ(d.tags[1].second, "Artist");
+    ASSERT_EQ(d.lines.size(), 1u);   // 两个纯 id 标签行不产出歌词行，仅保留时标行
+    EXPECT_EQ(d.lines[0].timeMs, 0);
 }
 
 TEST(LrcParser, LinesSortedAscending) {
@@ -105,7 +107,7 @@ TEST(LrcParser, MalformedBracketTreatedAsText) {
     ASSERT_EQ(d.lines.size(), 1u);
     EXPECT_FALSE(d.synced);
     EXPECT_EQ(d.lines[0].timeMs, -1);
-    // [not a time] 含冒号，被当作 id 标签 key="not a time"，正文为剩余
+    // [not a time] 无冒号，既非时标也非 id 标签，仅被消费；因剩余内容非空而产出 untimed 行
     EXPECT_EQ(d.lines[0].text, "still text");
 }
 
@@ -119,4 +121,11 @@ TEST(LrcParser, ThreeDigitFraction) {
     LyricData d = LrcParser::parse("[00:01.005]x");
     ASSERT_EQ(d.lines.size(), 1u);
     EXPECT_EQ(d.lines[0].timeMs, 1005);
+}
+
+TEST(LrcParser, TagLineTrailingWhitespaceNoSpuriousLine) {
+    LyricData d = LrcParser::parse("[ti:Song] \n[00:01.00]x");
+    ASSERT_EQ(d.lines.size(), 1u);   // 标签行尾随空白不得产出伪造空白行
+    EXPECT_EQ(d.lines[0].timeMs, 1000);
+    EXPECT_EQ(d.lines[0].text, "x");
 }
