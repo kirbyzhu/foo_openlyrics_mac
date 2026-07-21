@@ -1,6 +1,7 @@
 #include "parser/LrcParser.h"
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <exception>
 #include <sstream>
 
@@ -51,7 +52,11 @@ bool parseTimeTag(const std::string& body, int64_t& outMs) {
         std::string f3 = (frac + "000").substr(0, 3);
         if (!toInt64(f3, fracMs)) return false;
     }
-    outMs = (minutes * 60 + seconds) * 1000 + fracMs;
+    // 防止算术溢出
+    if (minutes > (INT64_MAX - seconds) / 60) return false;
+    int64_t totalSec = minutes * 60 + seconds;
+    if (totalSec > (INT64_MAX - fracMs) / 1000) return false;
+    outMs = totalSec * 1000 + fracMs;
     return true;
 }
 

@@ -53,7 +53,17 @@ TEST(LrcParser, OverlongMinutesTimeTagNoThrow) {
     LyricData d;
     EXPECT_NO_THROW({ d = LrcParser::parse("[99999999999999999999:12.34]text"); });
     // 该括号不是合法时标，不得产生带时标的歌词行
-    for (const auto& line : d.lines) {
-        EXPECT_LT(line.timeMs, 0);
-    }
+    EXPECT_FALSE(d.synced);
+}
+
+TEST(LrcParser, HugeMinutesNoOverflow) {
+    LyricData d;
+    EXPECT_NO_THROW({ d = LrcParser::parse("[999999999999999:00]x"); });
+    // 分钟值经算术放大会溢出 int64，必须被判为非法时标而非产生同步行
+    EXPECT_FALSE(d.synced);
+}
+
+TEST(LrcParser, NegativeOffsetParsed) {
+    LyricData d = LrcParser::parse("[offset:-500]\n[00:00.00]z");
+    EXPECT_EQ(d.offsetMs, -500);
 }
