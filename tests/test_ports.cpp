@@ -24,7 +24,6 @@ public:
 class FakeFs : public FileSystem {
 public:
     std::map<std::string, std::string> files;
-    bool exists(const std::string& p) override { return files.count(p) > 0; }
     bool readFile(const std::string& p, std::string& out) override {
         auto it = files.find(p);
         if (it == files.end()) return false;
@@ -84,10 +83,9 @@ TEST(Ports, HttpFakeReturnsBody) {
 
 TEST(Ports, FileSystemRoundTrip) {
     FakeFs fs;
-    EXPECT_FALSE(fs.exists("a.lrc"));
-    EXPECT_TRUE(fs.writeFile("a.lrc", "data"));
-    EXPECT_TRUE(fs.exists("a.lrc"));
     std::string out;
+    EXPECT_FALSE(fs.readFile("a.lrc", out));
+    EXPECT_TRUE(fs.writeFile("a.lrc", "data"));
     EXPECT_TRUE(fs.readFile("a.lrc", out));
     EXPECT_EQ(out, "data");
 }

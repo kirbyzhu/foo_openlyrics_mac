@@ -10,7 +10,6 @@ namespace {
 class FakeFs : public FileSystem {
 public:
     std::map<std::string, std::string> files;
-    bool exists(const std::string& p) override { return files.count(p) > 0; }
     bool readFile(const std::string& p, std::string& out) override {
         auto it = files.find(p);
         if (it == files.end()) return false;
@@ -137,7 +136,7 @@ TEST(LocalFileSource, ParentDirDotNotMistakenForExtension) {
 TEST(LocalFileSource, CaseInsensitiveExactExtensionMatch) {
     FakeFs fs;
     // 真实文件系统区分大小写：目录里是 "Song.LRC"（大写扩展名），精确按候选名拼接
-    // "Song.lrc" 去 exists() 会落空，必须列目录后做大小写不敏感比较才能命中。
+    // "Song.lrc" 去查找会落空，必须列目录后做大小写不敏感比较才能命中。
     fs.files["/music/album/Song.LRC"] = "[00:01.00]cased";
     LocalFileSource source(fs);
     TrackMeta track;
