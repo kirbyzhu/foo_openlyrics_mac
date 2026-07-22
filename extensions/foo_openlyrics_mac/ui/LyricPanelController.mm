@@ -5,6 +5,8 @@
 // 高亮与滚动，完成计划二的展示闭环；
 // Plan 3 Task 6：本地管线未命中时补一段在线检索（LrcLibProvider）+ 命中自动落盘
 // （LyricStore），完成计划三的在线拉取闭环。
+// Plan 4 Task 5：在线段扩展为 LrcLib→网易云→QQ 音乐三级级联，加失效隔离计数器，
+// 单源连续失败 5 次后本次会话跳过该源。
 //
 // 线程切分（对照 task-5-brief.md / task-6-brief.md 的"threading & safety"要求逐条核对过）：
 //   - PlaybackHub 的 -playbackHubDidChange 回调固定在主线程触发（PlaybackBridge.h 顶部注释）。
@@ -31,16 +33,20 @@
 #import "TagIOAdapter.h"
 #import "FileSystemAdapter.h"
 #import "HttpAdapter.h"
+#import "CryptoAdapter.h"
 
 #include "sources/TagSource.h"
 #include "sources/LocalFileSource.h"
 #include "sources/LrcLibProvider.h"
+#include "sources/NetEaseProvider.h"
+#include "sources/QQMusicProvider.h"
 #include "pipeline/SearchPipeline.h"
 #include "store/LyricStore.h"
 #include "sync/SyncEngine.h"
 #include "model/LyricData.h"
 
 static NSString *const kPlaceholderText = @"未在播放";
+static const int kMaxConsecutiveFailures = 5;  // 连续失败上限，超过后本次会话跳过该源
 // 播放位置轮询间隔：既驱动 SyncEngine::locate 的高亮/滚动目标更新，
 // 也顺带刷新顶部状态行的 mm:ss（见 -refreshStatusLine）。
 static const NSTimeInterval kSyncTickInterval = 0.06;
@@ -56,6 +62,11 @@ static const NSTimeInterval kSyncTickInterval = 0.06;
     // 当前曲目已解析出的歌词；-syncTimer 每 tick 拿它喂 SyncEngine::locate。
     // 只在主线程读写（后台 resolve 完成后 dispatch 回主线程才会写它），无需加锁。
     openlyrics::LyricData _currentLyricData;
+    // 失效隔离：各在线源连续失败计数器。后台线程写入，主线程读取，
+    // 竞态最多导致一两次额外的失败请求再被禁用，无正确性问题。
+    int _lrclibFailures;
+    int _neteaseFailures;
+    int _qqmusicFailures;
 }
 
 - (void)loadView {
@@ -191,29 +202,52 @@ static const NSTimeInterval kSyncTickInterval = 0.06;
         }
 
         bool onlineSaved = false;
-        if (!found) {
-            // 本地（内嵌标签 + 同目录 .lrc）都未命中：切状态行到"在线获取中…"，
-            // 让用户知道面板仍在工作而非卡死，再尝试 LrcLib 在线检索。
+        // 失效隔离辅助 lambda：源未禁用返回 true，命中/失败自动更新计数器与 sourceLabel。
+        auto trySource = [&](const char* label, const char* statusText, auto& provider, bool& found,
+                             openlyrics::LyricData& resolved, bool& saved, int& failures) -> bool {
+            if (failures >= kMaxConsecutiveFailures) return false;  // 已禁用
             dispatch_async(dispatch_get_main_queue(), ^{
                 __typeof__(self) strongSelf = weakSelf;
                 if (strongSelf == nil) return;
-                if (strongSelf.trackRequestToken != requestToken) return;  // 曲目已再次切换
-                strongSelf.statusLabel.stringValue = [NSString stringWithFormat:@"%@ · 在线获取中…", title];
+                if (strongSelf.trackRequestToken != requestToken) return;
+                strongSelf.statusLabel.stringValue =
+                    [NSString stringWithFormat:@"%@ · %s", title, statusText];
             });
-
-            openlyrics::HttpAdapter httpAdapter;
-            openlyrics::LrcLibProvider onlineProvider(httpAdapter);
-            openlyrics::LyricData onlineData;
-            if (onlineProvider.fetch(meta, onlineData)) {
+            openlyrics::LyricData data;
+            if (provider.fetch(meta, data)) {
                 found = true;
-                resolved = onlineData;
-                sourceLabel = "online";
-
-                // 命中后自动落盘：写到 <音频名>.lrc，下次同一曲目本地精确步就能直接
-                // 命中，不必再打网络请求。best-effort——写盘失败（如目录不可写）不影响
-                // 本次已经取到的在线歌词照常展示，只在控制台日志里体现保存与否。
+                resolved = data;
+                sourceLabel = label;
+                failures = 0;  // 命中 → 清零
                 openlyrics::LyricStore store(fsAdapter);
-                onlineSaved = store.save(meta, onlineData);
+                saved = store.save(meta, data);
+                return true;
+            }
+            ++failures;  // 未命中 → 递增
+            return false;
+        };
+
+        if (!found) {
+            if (_lrclibFailures < kMaxConsecutiveFailures) {
+                openlyrics::HttpAdapter httpAdapter;
+                openlyrics::LrcLibProvider lrcLib(httpAdapter);
+                trySource("online", "在线获取中…", lrcLib, found, resolved, onlineSaved, _lrclibFailures);
+            }
+        }
+        if (!found) {
+            if (_neteaseFailures < kMaxConsecutiveFailures) {
+                openlyrics::HttpAdapter httpAdapter;
+                openlyrics::CryptoAdapter crypto;
+                openlyrics::NetEaseProvider netease(httpAdapter, crypto);
+                trySource("netease", "正在搜索网易云…", netease, found, resolved, onlineSaved, _neteaseFailures);
+            }
+        }
+        if (!found) {
+            if (_qqmusicFailures < kMaxConsecutiveFailures) {
+                openlyrics::HttpAdapter httpAdapter;
+                openlyrics::CryptoAdapter crypto;
+                openlyrics::QQMusicProvider qqmusic(httpAdapter, crypto);
+                trySource("qqmusic", "正在搜索QQ音乐…", qqmusic, found, resolved, onlineSaved, _qqmusicFailures);
             }
         }
 
@@ -226,7 +260,8 @@ static const NSTimeInterval kSyncTickInterval = 0.06;
         FB2K_console_print("foo_openlyrics: native path=", meta.path.c_str(),
                             found ? "  lyric=matched source=" : "  lyric=not-found source=",
                             sourceLabel.c_str(),
-                            sourceLabel == "online" ? (onlineSaved ? "  saved=yes" : "  saved=no") : "");
+                            (sourceLabel == "online" || sourceLabel == "netease" || sourceLabel == "qqmusic")
+                                ? (onlineSaved ? "  saved=yes" : "  saved=no") : "");
 
         dispatch_async(dispatch_get_main_queue(), ^{
             __typeof__(self) strongSelf = weakSelf;
