@@ -19,6 +19,7 @@ add_library(openlyrics_core STATIC
   extensions/foo_openlyrics_mac/core/sources/LocalFileSource.cpp
   extensions/foo_openlyrics_mac/core/pipeline/SearchPipeline.cpp
   extensions/foo_openlyrics_mac/core/net/UrlEncode.cpp
+  extensions/foo_openlyrics_mac/core/net/JsonField.cpp
 )
 target_include_directories(openlyrics_core PUBLIC extensions/foo_openlyrics_mac/core)
 
@@ -95,6 +96,7 @@ add_executable(core_tests
   tests/test_local_file_source.cpp
   tests/test_search_pipeline.cpp
   tests/test_url_encode.cpp
+  tests/test_json_field.cpp
 )
 target_link_libraries(core_tests PRIVATE openlyrics_core GTest::gtest_main)
 
