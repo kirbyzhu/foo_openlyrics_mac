@@ -227,3 +227,20 @@ TEST(LocalFileSource, NoFuzzyMatchWhenTitleNotContainedAnywhere) {
     LyricData out;
     EXPECT_FALSE(source.fetch(track, out));
 }
+
+TEST(LocalFileSource, FuzzyMatchesChineseTitle) {
+    // UTF-8 中文标题在标准化后应保留多字节字符，并可用于模糊匹配。
+    // 文件名中包含中文标题，即使大小写/艺术家格式不同，也应通过标准化子串匹配命中。
+    FakeFs fs;
+    fs.files["/m/cn/歌手 - 后来.lrc"] = "[00:01.00]测试";
+    LocalFileSource source(fs);
+    TrackMeta track;
+    track.title = "后来";
+    track.artist = "歌手";
+    track.path = "/m/cn/track.mp3";
+    LyricData out;
+    ASSERT_TRUE(source.fetch(track, out));
+    EXPECT_TRUE(out.synced);
+    ASSERT_EQ(out.lines.size(), 1u);
+    EXPECT_EQ(out.lines[0].text, "测试");
+}

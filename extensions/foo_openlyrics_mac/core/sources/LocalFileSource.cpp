@@ -40,11 +40,14 @@ struct FuzzyCandidate {
     size_t normalizedLength = 0;
 };
 
+// Forward reference helper for normalize in comparator (defined below in class scope)
+std::string NormalizeForComparator(const std::string& s);
+
 bool RankFuzzyCandidate(const FuzzyCandidate& a, const FuzzyCandidate& b) {
     if (a.hasArtist != b.hasArtist) return a.hasArtist;                    // (a) 含 artist 优先
     if (a.isLrc != b.isLrc) return a.isLrc;                                // (b) .lrc 优先于 .txt
     if (a.normalizedLength != b.normalizedLength) return a.normalizedLength < b.normalizedLength;  // (c) 更短优先
-    return a.entry < b.entry;                                              // (d) 字典序最小者优先
+    return NormalizeForComparator(a.entry) < NormalizeForComparator(b.entry);  // (d) 标准化后字典序最小者优先
 }
 
 }  // namespace
@@ -65,10 +68,23 @@ std::string LocalFileSource::normalize(const std::string& s) {
     std::string out;
     out.reserve(s.size());
     for (unsigned char c : s) {
-        if (std::isalnum(c)) out.push_back(static_cast<char>(std::tolower(c)));
+        if (c < 0x80) {
+            // ASCII 范围：仅保留字母数字（小写），丢弃标点/空白
+            if (std::isalnum(c)) out.push_back(static_cast<char>(std::tolower(c)));
+        } else {
+            // 非 ASCII 字节（UTF-8 多字节的一部分）：保留原样
+            out.push_back(static_cast<char>(c));
+        }
     }
     return out;
 }
+
+// Helper function for use within anonymous namespace
+namespace {
+std::string NormalizeForComparator(const std::string& s) {
+    return LocalFileSource::normalize(s);
+}
+}  // namespace
 
 bool LocalFileSource::fetch(const TrackMeta& track, LyricData& out) {
     const std::string dir = DirOf(track.path);
