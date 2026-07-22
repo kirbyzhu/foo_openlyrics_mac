@@ -6,4 +6,9 @@ namespace openlyrics {
 bool jsonGetString(const std::string& json, const std::string& key, std::string& out);
 // 值为 true/false → 写 out 返回 true；否则 false。
 bool jsonGetBool(const std::string& json, const std::string& key, bool& out);
+// 值为整数 → 写 out 返回 true；否则 false。
+bool jsonGetInt(const std::string& json, const std::string& key, int64_t& out);
+// 值为 JSON 对象 → 取其原始文本（不含外层引号）写入 out 返回 true；否则 false。
+// 可用于链式取值：jsonGetObject(resp, "lrc", obj) → jsonGetString(obj, "lyric", text)。
+bool jsonGetObject(const std::string& json, const std::string& key, std::string& out);
 }

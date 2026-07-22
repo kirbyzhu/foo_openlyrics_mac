@@ -19,6 +19,14 @@ public:
         r.body = "ok:" + url;
         return r;
     }
+    HttpResponse post(const std::string& url,
+                       const std::string&,
+                       const std::vector<std::pair<std::string, std::string>>& = {}) override {
+        HttpResponse r;
+        r.status = 200;
+        r.body = "post:" + url;
+        return r;
+    }
 };
 
 class FakeFs : public FileSystem {

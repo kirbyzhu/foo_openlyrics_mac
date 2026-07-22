@@ -17,6 +17,10 @@ public:
         lastUrl = url;
         return response;
     }
+    HttpResponse post(const std::string&, const std::string&,
+                       const std::vector<std::pair<std::string, std::string>>& = {}) override {
+        return {};
+    }
 };
 
 }  // namespace

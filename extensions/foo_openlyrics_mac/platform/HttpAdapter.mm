@@ -105,4 +105,75 @@ HttpResponse HttpAdapter::get(const std::string& url,
     return response;
 }
 
+HttpResponse HttpAdapter::post(const std::string& url,
+                                const std::string& body,
+                                const std::vector<std::pair<std::string, std::string>>& headers) {
+    NSCAssert(![NSThread isMainThread], @"HttpAdapter::post 不可在主线程调用（会阻塞 UI）");
+
+    HttpResponse response;
+
+    @autoreleasepool {
+        NSURL* nsUrl = [NSURL URLWithString:[NSString stringWithUTF8String:url.c_str()]];
+        if (nsUrl == nil) {
+            return response;
+        }
+
+        NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:nsUrl];
+        request.HTTPMethod = @"POST";
+        request.timeoutInterval = kRequestTimeoutSeconds;
+        request.HTTPBody = [NSData dataWithBytes:body.c_str() length:body.size()];
+
+        bool hasContentType = false;
+        for (const auto& kv : headers) {
+            [request setValue:[NSString stringWithUTF8String:kv.second.c_str()]
+            forHTTPHeaderField:[NSString stringWithUTF8String:kv.first.c_str()]];
+            if (strcasecmp(kv.first.c_str(), "Content-Type") == 0) {
+                hasContentType = true;
+            }
+        }
+        if (!HasUserAgentHeader(headers)) {
+            [request setValue:kDefaultUserAgent forHTTPHeaderField:@"User-Agent"];
+        }
+        if (!hasContentType) {
+            [request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+        }
+
+        NSURLSessionConfiguration* config = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+        config.timeoutIntervalForRequest = kRequestTimeoutSeconds;
+        NSURLSession* session = [NSURLSession sessionWithConfiguration:config];
+
+        dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+        __block NSInteger statusCode = 0;
+        __block NSData* bodyData = nil;
+
+        NSURLSessionDataTask* task = [session
+            dataTaskWithRequest:request
+              completionHandler:^(NSData* data, NSURLResponse* urlResponse, NSError* error) {
+                  if (error == nil && [urlResponse isKindOfClass:[NSHTTPURLResponse class]]) {
+                      statusCode = ((NSHTTPURLResponse*)urlResponse).statusCode;
+                      bodyData = data;
+                  }
+                  dispatch_semaphore_signal(sem);
+              }];
+        [task resume];
+
+        dispatch_time_t deadline = dispatch_time(
+            DISPATCH_TIME_NOW, (int64_t)((kRequestTimeoutSeconds + 1.0) * NSEC_PER_SEC));
+        if (dispatch_semaphore_wait(sem, deadline) != 0) {
+            [task cancel];
+            [session finishTasksAndInvalidate];
+            return response;
+        }
+
+        [session finishTasksAndInvalidate];
+
+        response.status = static_cast<int>(statusCode);
+        if (bodyData != nil) {
+            response.body = std::string(reinterpret_cast<const char*>(bodyData.bytes), bodyData.length);
+        }
+    }
+
+    return response;
+}
+
 }  // namespace openlyrics

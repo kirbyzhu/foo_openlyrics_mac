@@ -262,4 +262,38 @@ bool jsonGetBool(const std::string& json, const std::string& key, bool& out) {
     return false;
 }
 
+bool jsonGetInt(const std::string& json, const std::string& key, int64_t& out) {
+    size_t valueStart;
+    if (!findTopLevelValue(json, key, valueStart)) return false;
+    if (valueStart >= json.size()) return false;
+    char c = json[valueStart];
+    if (c == '-' || (c >= '0' && c <= '9')) {
+        size_t end = valueStart;
+        bool negative = false;
+        if (end < json.size() && json[end] == '-') {
+            negative = true;
+            ++end;
+        }
+        int64_t val = 0;
+        while (end < json.size() && json[end] >= '0' && json[end] <= '9') {
+            val = val * 10 + (json[end] - '0');
+            ++end;
+        }
+        if (end == valueStart || (negative && end == valueStart + 1)) return false;
+        out = negative ? -val : val;
+        return true;
+    }
+    return false;
+}
+
+bool jsonGetObject(const std::string& json, const std::string& key, std::string& out) {
+    size_t valueStart;
+    if (!findTopLevelValue(json, key, valueStart)) return false;
+    if (valueStart >= json.size() || json[valueStart] != '{') return false;
+    size_t end = skipValue(json, valueStart);
+    if (end == std::string::npos) return false;
+    out = json.substr(valueStart, end - valueStart);
+    return true;
+}
+
 }  // namespace openlyrics
