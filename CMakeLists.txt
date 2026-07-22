@@ -25,6 +25,7 @@ add_library(openlyrics_core STATIC
   extensions/foo_openlyrics_mac/core/net/Base64.cpp
   extensions/foo_openlyrics_mac/core/sources/NetEaseProvider.cpp
   extensions/foo_openlyrics_mac/core/sources/QQMusicProvider.cpp
+  extensions/foo_openlyrics_mac/core/config/AppConfig.cpp
 )
 target_include_directories(openlyrics_core PUBLIC extensions/foo_openlyrics_mac/core)
 
@@ -54,6 +55,8 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/platform/HttpAdapter.mm
     # Plan 4 Task 4：CryptoPort 的 CommonCrypto/Security.framework 实现。
     extensions/foo_openlyrics_mac/platform/CryptoAdapter.mm
+    # Plan 6 Task 1：ConfigAdapter NSUserDefaults 持久化。
+    extensions/foo_openlyrics_mac/platform/ConfigAdapter.mm
   )
   set_target_properties(foo_openlyrics PROPERTIES
     PREFIX ""
@@ -69,6 +72,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/ui/LyricPanelController.mm
     extensions/foo_openlyrics_mac/platform/HttpAdapter.mm
     extensions/foo_openlyrics_mac/platform/CryptoAdapter.mm
+    extensions/foo_openlyrics_mac/platform/ConfigAdapter.mm
     PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
   )
   target_include_directories(foo_openlyrics PRIVATE
@@ -114,6 +118,7 @@ add_executable(core_tests
   tests/test_lyric_store.cpp
   tests/test_netease_provider.cpp
   tests/test_qqmusic_provider.cpp
+  tests/test_app_config.cpp
 )
 target_link_libraries(core_tests PRIVATE openlyrics_core GTest::gtest_main)
 
