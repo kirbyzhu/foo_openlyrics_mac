@@ -22,7 +22,7 @@ namespace openlyrics {
 namespace {
 
 NSString* const kDefaultUserAgent = @"foo_openlyrics_mac/0.1.0 (+https://github.com)";
-constexpr NSTimeInterval kRequestTimeoutSeconds = 10.0;
+static int g_timeoutSec = 10;
 
 bool HasUserAgentHeader(const std::vector<std::pair<std::string, std::string>>& headers) {
     for (const auto& kv : headers) {
@@ -50,7 +50,7 @@ HttpResponse HttpAdapter::get(const std::string& url,
 
         NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:nsUrl];
         request.HTTPMethod = @"GET";
-        request.timeoutInterval = kRequestTimeoutSeconds;
+        request.timeoutInterval = g_timeoutSec;
 
         for (const auto& kv : headers) {
             [request setValue:[NSString stringWithUTF8String:kv.second.c_str()]
@@ -61,7 +61,7 @@ HttpResponse HttpAdapter::get(const std::string& url,
         }
 
         NSURLSessionConfiguration* config = [NSURLSessionConfiguration ephemeralSessionConfiguration];
-        config.timeoutIntervalForRequest = kRequestTimeoutSeconds;
+        config.timeoutIntervalForRequest = g_timeoutSec;
         NSURLSession* session = [NSURLSession sessionWithConfiguration:config];
 
         dispatch_semaphore_t sem = dispatch_semaphore_create(0);
@@ -83,7 +83,7 @@ HttpResponse HttpAdapter::get(const std::string& url,
         // error 分支并 signal；这里的 wait deadline 只是防御 completionHandler 因异常
         // 状况始终不回调时，后台线程也不会被无限期挂起。超时则主动取消任务、按传输失败返回。
         dispatch_time_t deadline = dispatch_time(
-            DISPATCH_TIME_NOW, (int64_t)((kRequestTimeoutSeconds + 1.0) * NSEC_PER_SEC));
+            DISPATCH_TIME_NOW, (int64_t)((g_timeoutSec + 1.0) * NSEC_PER_SEC));
         if (dispatch_semaphore_wait(sem, deadline) != 0) {
             [task cancel];
             [session finishTasksAndInvalidate];
@@ -120,7 +120,7 @@ HttpResponse HttpAdapter::post(const std::string& url,
 
         NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:nsUrl];
         request.HTTPMethod = @"POST";
-        request.timeoutInterval = kRequestTimeoutSeconds;
+        request.timeoutInterval = g_timeoutSec;
         request.HTTPBody = [NSData dataWithBytes:body.c_str() length:body.size()];
 
         bool hasContentType = false;
@@ -139,7 +139,7 @@ HttpResponse HttpAdapter::post(const std::string& url,
         }
 
         NSURLSessionConfiguration* config = [NSURLSessionConfiguration ephemeralSessionConfiguration];
-        config.timeoutIntervalForRequest = kRequestTimeoutSeconds;
+        config.timeoutIntervalForRequest = g_timeoutSec;
         NSURLSession* session = [NSURLSession sessionWithConfiguration:config];
 
         dispatch_semaphore_t sem = dispatch_semaphore_create(0);
@@ -158,7 +158,7 @@ HttpResponse HttpAdapter::post(const std::string& url,
         [task resume];
 
         dispatch_time_t deadline = dispatch_time(
-            DISPATCH_TIME_NOW, (int64_t)((kRequestTimeoutSeconds + 1.0) * NSEC_PER_SEC));
+            DISPATCH_TIME_NOW, (int64_t)((g_timeoutSec + 1.0) * NSEC_PER_SEC));
         if (dispatch_semaphore_wait(sem, deadline) != 0) {
             [task cancel];
             [session finishTasksAndInvalidate];
@@ -174,6 +174,11 @@ HttpResponse HttpAdapter::post(const std::string& url,
     }
 
     return response;
+}
+
+int HttpAdapter::globalTimeout() { return g_timeoutSec; }
+void HttpAdapter::setGlobalTimeout(int seconds) {
+    if (seconds >= 1) g_timeoutSec = seconds;
 }
 
 }  // namespace openlyrics

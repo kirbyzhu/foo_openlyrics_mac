@@ -1,13 +1,7 @@
 // LyricPanelController.mm
-// foo_openlyrics_mac —— Plan 2-4 歌词面板控制器；
-// Plan 5 Task 2-4：新增手动搜索（NSSearchField + NSPopover + NSTableView）、
-// offset 微调（NSStepper + 标签 + extraOffsetMs）、offset 持久化（forceSave 覆写 .lrc）。
-//
-// 线程切分：
-//   - PlaybackHub 回调在主线程触发。
-//   - 耗时检索（管线 + 在线搜索 + fetchById）在后台并发队列执行。
-//   - 结果 dispatch 回主线程后才碰 UI（AppKit 对象）。
-//   - _trackRequestToken 自增作废过期结果。
+// foo_openlyrics_mac —— Plan 2-5 歌词面板控制器；
+// Plan 6 Task 3-4：新增编辑模式（NSTextView 覆层 + 解析保存）+ 配置接线（动态源顺序、
+// 显示配置、超时、默认 offset）。
 #import "LyricPanelController.h"
 #import "stdafx.h"
 
@@ -16,6 +10,7 @@
 #import "FileSystemAdapter.h"
 #import "HttpAdapter.h"
 #import "CryptoAdapter.h"
+#import "ConfigAdapter.h"
 
 #include "sources/TagSource.h"
 #include "sources/LocalFileSource.h"
@@ -28,11 +23,12 @@
 #include "model/LyricData.h"
 #include "model/SearchResult.h"
 #include "parser/LrcParser.h"
+#include "parser/LrcSerializer.h"
+#include "config/AppConfig.h"
 
 static NSString *const kPlaceholderText = @"未在播放";
-static const int kMaxConsecutiveFailures = 5;
 static const NSTimeInterval kSyncTickInterval = 0.06;
-static const double kOffsetStep = 0.1;      // 每步 100ms
+static const double kOffsetStep = 0.1;
 static const double kOffsetMin = -30.0;
 static const double kOffsetMax = 30.0;
 
@@ -43,13 +39,20 @@ static const double kOffsetMax = 30.0;
 @property(nonatomic, strong) NSTimer *syncTimer;
 @property(nonatomic, assign) NSInteger trackRequestToken;
 
-// offset 微调控件
+// offset
 @property(nonatomic, strong) NSView *offsetContainer;
 @property(nonatomic, strong) NSStepper *offsetStepper;
 @property(nonatomic, strong) NSTextField *offsetLabel;
 @property(nonatomic, strong) NSButton *applyOffsetBtn;
 
-// 搜索弹窗
+// 编辑器
+@property(nonatomic, strong) NSButton *editBtn;
+@property(nonatomic, strong) NSScrollView *editScrollView;
+@property(nonatomic, strong) NSTextView *editTextView;
+@property(nonatomic, strong) NSButton *editDoneBtn;
+@property(nonatomic, strong) NSButton *editCancelBtn;
+
+// 搜索
 @property(nonatomic, strong) NSPopover *searchPopover;
 @property(nonatomic, strong) NSTableView *searchTableView;
 @property(nonatomic, copy) NSArray<NSDictionary *> *searchResults;
@@ -58,13 +61,19 @@ static const double kOffsetMax = 30.0;
 @implementation LyricPanelController {
     openlyrics::LyricData _currentLyricData;
     int64_t _currentExtraOffsetMs;
-    std::string _currentSourceLabel;  // "tag"/"local"/"online"/"netease"/"qqmusic"
+    std::string _currentSourceLabel;
     int _lrclibFailures;
     int _neteaseFailures;
     int _qqmusicFailures;
+    openlyrics::AppConfig _config;
 }
 
 - (void)loadView {
+    _config = openlyrics::ConfigAdapter().load();
+
+    // 应用全局配置
+    openlyrics::HttpAdapter::setGlobalTimeout(_config.httpTimeoutSec);
+
     NSView *root = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 320, 200)];
 
     // 搜索框
@@ -75,7 +84,7 @@ static const double kOffsetMax = 30.0;
     search.action = @selector(searchFieldAction:);
     [root addSubview:search];
 
-    // 状态行 + offset 控件容器
+    // 状态行 + offset/编辑控件
     NSView *statusRow = [[NSView alloc] initWithFrame:NSZeroRect];
     statusRow.translatesAutoresizingMaskIntoConstraints = NO;
     [root addSubview:statusRow];
@@ -111,15 +120,53 @@ static const double kOffsetMax = 30.0;
     applyBtn.controlSize = NSControlSizeSmall;
     applyBtn.translatesAutoresizingMaskIntoConstraints = NO;
 
+    NSButton *editBtn = [NSButton buttonWithTitle:@"编辑" target:self action:@selector(toggleEditMode:)];
+    editBtn.font = [NSFont systemFontOfSize:10];
+    editBtn.controlSize = NSControlSizeSmall;
+    editBtn.translatesAutoresizingMaskIntoConstraints = NO;
+
     [offsetBox addSubview:stepper];
     [offsetBox addSubview:offsetLbl];
     [offsetBox addSubview:applyBtn];
+    [offsetBox addSubview:editBtn];
     [statusRow addSubview:offsetBox];
 
     // LyricView
     LyricView *lyricView = [[LyricView alloc] initWithFrame:NSZeroRect];
     lyricView.translatesAutoresizingMaskIntoConstraints = NO;
+    [lyricView applyDisplayConfig:_config.display];
     [root addSubview:lyricView];
+
+    // 编辑模式 NSTextView（初始隐藏）
+    NSScrollView *editScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    editScroll.hasVerticalScroller = YES;
+    editScroll.translatesAutoresizingMaskIntoConstraints = NO;
+    editScroll.hidden = YES;
+
+    NSTextView *editText = [[NSTextView alloc] initWithFrame:NSZeroRect];
+    editText.font = [NSFont fontWithName:@"Monaco" size:12] ?: [NSFont systemFontOfSize:12];
+    editText.automaticQuoteSubstitutionEnabled = NO;
+    editText.automaticDashSubstitutionEnabled = NO;
+    editText.continuousSpellCheckingEnabled = NO;
+    editText.grammarCheckingEnabled = NO;
+    editText.translatesAutoresizingMaskIntoConstraints = NO;
+    editScroll.documentView = editText;
+
+    NSButton *doneBtn = [NSButton buttonWithTitle:@"完成" target:self action:@selector(editDoneAction:)];
+    doneBtn.font = [NSFont systemFontOfSize:11];
+    doneBtn.controlSize = NSControlSizeSmall;
+    doneBtn.translatesAutoresizingMaskIntoConstraints = NO;
+    doneBtn.hidden = YES;
+
+    NSButton *cancelBtn = [NSButton buttonWithTitle:@"取消" target:self action:@selector(editCancelAction:)];
+    cancelBtn.font = [NSFont systemFontOfSize:11];
+    cancelBtn.controlSize = NSControlSizeSmall;
+    cancelBtn.translatesAutoresizingMaskIntoConstraints = NO;
+    cancelBtn.hidden = YES;
+
+    [root addSubview:editScroll];
+    [root addSubview:doneBtn];
+    [root addSubview:cancelBtn];
 
     // 布局约束
     [NSLayoutConstraint activateConstraints:@[
@@ -147,39 +194,48 @@ static const double kOffsetMax = 30.0;
         [offsetLbl.widthAnchor constraintEqualToConstant:52],
 
         [applyBtn.leadingAnchor constraintEqualToAnchor:offsetLbl.trailingAnchor constant:4],
-        [applyBtn.trailingAnchor constraintEqualToAnchor:offsetBox.trailingAnchor],
         [applyBtn.centerYAnchor constraintEqualToAnchor:offsetBox.centerYAnchor],
+
+        [editBtn.leadingAnchor constraintEqualToAnchor:applyBtn.trailingAnchor constant:4],
+        [editBtn.trailingAnchor constraintEqualToAnchor:offsetBox.trailingAnchor],
+        [editBtn.centerYAnchor constraintEqualToAnchor:offsetBox.centerYAnchor],
 
         [lyricView.topAnchor constraintEqualToAnchor:statusRow.bottomAnchor constant:2],
         [lyricView.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
         [lyricView.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
         [lyricView.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
+
+        [editScroll.topAnchor constraintEqualToAnchor:lyricView.topAnchor],
+        [editScroll.leadingAnchor constraintEqualToAnchor:lyricView.leadingAnchor],
+        [editScroll.trailingAnchor constraintEqualToAnchor:lyricView.trailingAnchor],
+
+        [doneBtn.topAnchor constraintEqualToAnchor:editScroll.bottomAnchor constant:4],
+        [doneBtn.trailingAnchor constraintEqualToAnchor:cancelBtn.leadingAnchor constant:-8],
+        [doneBtn.bottomAnchor constraintEqualToAnchor:root.bottomAnchor constant:-4],
+
+        [cancelBtn.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-8],
+        [cancelBtn.centerYAnchor constraintEqualToAnchor:doneBtn.centerYAnchor],
     ]];
 
-    // 搜索结果 popover
+    // 搜索 popover（与 plan5 保持一致的实现）
     _searchPopover = [[NSPopover alloc] init];
     _searchPopover.behavior = NSPopoverBehaviorTransient;
     _searchPopover.animates = YES;
 
     NSTableView *tv = [[NSTableView alloc] initWithFrame:NSZeroRect];
     NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:@"result"];
-    col.title = @"";
-    col.width = 260;
+    col.title = @""; col.width = 260;
     [tv addTableColumn:col];
-    tv.headerView = nil;
-    tv.rowHeight = 36;
-    tv.dataSource = self;
-    tv.delegate = self;
-    tv.target = self;
-    tv.doubleAction = @selector(searchRowDoubleClicked:);
+    tv.headerView = nil; tv.rowHeight = 36;
+    tv.dataSource = self; tv.delegate = self;
+    tv.target = self; tv.doubleAction = @selector(searchRowDoubleClicked:);
     _searchTableView = tv;
 
-    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 280, 200)];
-    scrollView.documentView = tv;
-    scrollView.hasVerticalScroller = YES;
-    NSViewController *popoverVC = [[NSViewController alloc] init];
-    popoverVC.view = scrollView;
-    _searchPopover.contentViewController = popoverVC;
+    NSScrollView *popScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 280, 200)];
+    popScroll.documentView = tv; popScroll.hasVerticalScroller = YES;
+    NSViewController *popVC = [[NSViewController alloc] init];
+    popVC.view = popScroll;
+    _searchPopover.contentViewController = popVC;
 
     self.searchField = search;
     self.statusLabel = status;
@@ -188,17 +244,76 @@ static const double kOffsetMax = 30.0;
     self.offsetStepper = stepper;
     self.offsetLabel = offsetLbl;
     self.applyOffsetBtn = applyBtn;
+    self.editBtn = editBtn;
+    self.editScrollView = editScroll;
+    self.editTextView = editText;
+    self.editDoneBtn = doneBtn;
+    self.editCancelBtn = cancelBtn;
     self.view = root;
 }
 
-#pragma mark - 搜索
+#pragma mark - 编辑模式
+
+- (void)toggleEditMode:(id)sender {
+    if (_editTextView.hidden) {
+        // 进入编辑模式
+        std::string text = _currentLyricData.sourceText.empty()
+            ? openlyrics::LrcSerializer::serialize(_currentLyricData)
+            : _currentLyricData.sourceText;
+        _editTextView.string = [NSString stringWithUTF8String:text.c_str()];
+        _lyricView.hidden = YES;
+        _editScrollView.hidden = NO;
+        _editDoneBtn.hidden = NO;
+        _editCancelBtn.hidden = NO;
+        _editBtn.hidden = YES;
+        _offsetContainer.hidden = YES;
+        [self.view.window makeFirstResponder:_editTextView];
+    }
+}
+
+- (void)exitEditMode {
+    _lyricView.hidden = NO;
+    _editScrollView.hidden = YES;
+    _editDoneBtn.hidden = YES;
+    _editCancelBtn.hidden = YES;
+    _editBtn.hidden = NO;
+    _offsetContainer.hidden = _currentLyricData.lines.empty();
+}
+
+- (void)editDoneAction:(id)sender {
+    std::string text = _editTextView.string.UTF8String ?: "";
+    openlyrics::LyricData parsed = openlyrics::LrcParser::parse(text);
+    if (parsed.lines.empty()) return;  // 解析无有效行，不保存
+
+    parsed.sourceText = text;
+    _currentLyricData = parsed;
+    _currentExtraOffsetMs = 0;
+    [self.lyricView setLyricData:parsed];
+    [self exitEditMode];
+    [self updateOffsetUI];
+
+    // 覆写 .lrc
+    PlaybackHub *hub = [PlaybackHub sharedHub];
+    if ([hub hasTrack]) {
+        openlyrics::TrackMeta meta = [hub currentTrack];
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            openlyrics::FileSystemAdapter fs;
+            openlyrics::LyricStore store(fs);
+            store.forceSave(meta, parsed);
+        });
+    }
+}
+
+- (void)editCancelAction:(id)sender {
+    [self exitEditMode];
+}
+
+#pragma mark - 搜索（同 plan5）
 
 - (void)searchFieldAction:(NSSearchField *)sender {
     NSString *query = [sender.stringValue stringByTrimmingCharactersInSet:
                        [NSCharacterSet whitespaceCharacterSet]];
     if (query.length == 0) return;
-
-    // 关闭旧 popover 并显示搜索中状态
     [_searchPopover close];
     sender.placeholderString = @"搜索中…";
 
@@ -212,8 +327,7 @@ static const double kOffsetMax = 30.0;
         NSMutableArray<NSDictionary *> *arr = [NSMutableArray arrayWithCapacity:results.size()];
         for (const auto& r : results) {
             [arr addObject:@{
-                @"id": @(r.id),
-                @"trackName": [NSString stringWithUTF8String:r.trackName.c_str()],
+                @"id": @(r.id), @"trackName": [NSString stringWithUTF8String:r.trackName.c_str()],
                 @"artistName": [NSString stringWithUTF8String:r.artistName.c_str()],
                 @"albumName": [NSString stringWithUTF8String:r.albumName.c_str()],
             }];
@@ -226,10 +340,9 @@ static const double kOffsetMax = 30.0;
             strongSelf.searchResults = arr;
             [strongSelf.searchTableView reloadData];
             if (arr.count > 0) {
-                // 调整 popover 高度
                 NSViewController *vc = strongSelf.searchPopover.contentViewController;
-                CGFloat h = MIN(arr.count * strongSelf.searchTableView.rowHeight + 4, 200);
-                vc.view.frame = NSMakeRect(0, 0, 280, h);
+                vc.view.frame = NSMakeRect(0, 0, 280,
+                    MIN(arr.count * strongSelf.searchTableView.rowHeight + 4, 200));
                 [strongSelf.searchPopover showRelativeToRect:strongSelf.searchField.bounds
                                                       ofView:strongSelf.searchField
                                                preferredEdge:NSRectEdgeMaxY];
@@ -241,17 +354,15 @@ static const double kOffsetMax = 30.0;
 - (void)searchRowDoubleClicked:(id)sender {
     NSInteger row = _searchTableView.clickedRow;
     if (row < 0 || row >= (NSInteger)_searchResults.count) return;
-    NSDictionary *item = _searchResults[row];
-    int lyricId = [item[@"id"] intValue];
-
+    int lyricId = [_searchResults[row][@"id"] intValue];
     [_searchPopover close];
     self.searchField.stringValue = @"";
 
     PlaybackHub *hub = [PlaybackHub sharedHub];
     if (![hub hasTrack]) return;
     openlyrics::TrackMeta meta = [hub currentTrack];
-    NSString *title = meta.title.empty() ? @"(未知曲目)" :
-        [NSString stringWithUTF8String:meta.title.c_str()];
+    NSString *title = meta.title.empty() ? @"(未知曲目)"
+        : [NSString stringWithUTF8String:meta.title.c_str()];
     self.statusLabel.stringValue = [NSString stringWithFormat:@"%@ · 获取歌词中…", title];
 
     const NSInteger requestToken = self.trackRequestToken;
@@ -264,14 +375,14 @@ static const double kOffsetMax = 30.0;
             dispatch_async(dispatch_get_main_queue(), ^{
                 __typeof__(self) strongSelf = weakSelf;
                 if (strongSelf == nil || strongSelf.trackRequestToken != requestToken) return;
-                strongSelf.statusLabel.stringValue = [NSString stringWithFormat:@"%@ · 获取失败", title];
+                strongSelf.statusLabel.stringValue =
+                    [NSString stringWithFormat:@"%@ · 获取失败", title];
             });
             return;
         }
-
-        openlyrics::FileSystemAdapter fsAdapter;
-        openlyrics::LyricStore store(fsAdapter);
-        bool saved = store.save(meta, data);
+        openlyrics::FileSystemAdapter fs;
+        openlyrics::LyricStore store(fs);
+        store.save(meta, data);
 
         dispatch_async(dispatch_get_main_queue(), ^{
             __typeof__(self) strongSelf = weakSelf;
@@ -282,7 +393,7 @@ static const double kOffsetMax = 30.0;
             [strongSelf.lyricView setLyricData:data];
             strongSelf.statusLabel.stringValue = title;
             [strongSelf updateOffsetUI];
-            strongSelf.offsetContainer.hidden = (data.lines.empty());
+            strongSelf.offsetContainer.hidden = data.lines.empty();
         });
     });
 }
@@ -293,16 +404,14 @@ static const double kOffsetMax = 30.0;
     return (NSInteger)_searchResults.count;
 }
 
-- (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row {
+- (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)col row:(NSInteger)row {
     if (row < 0 || row >= (NSInteger)_searchResults.count) return nil;
     NSDictionary *item = _searchResults[row];
-
     NSString *cellId = @"searchCell";
     NSTableCellView *cell = [tableView makeViewWithIdentifier:cellId owner:self];
     if (cell == nil) {
         cell = [[NSTableCellView alloc] initWithFrame:NSZeroRect];
         cell.identifier = cellId;
-
         NSTextField *tf = [NSTextField labelWithString:@""];
         tf.font = [NSFont systemFontOfSize:11];
         tf.lineBreakMode = NSLineBreakByTruncatingTail;
@@ -315,13 +424,12 @@ static const double kOffsetMax = 30.0;
         ]];
         cell.textField = tf;
     }
-
     cell.textField.stringValue = [NSString stringWithFormat:@"%@  —  %@",
         item[@"trackName"], item[@"artistName"]];
     return cell;
 }
 
-#pragma mark - Offset 微调
+#pragma mark - Offset
 
 - (void)offsetStepperAction:(NSStepper *)sender {
     _currentExtraOffsetMs = static_cast<int64_t>(sender.doubleValue * 1000.0);
@@ -332,11 +440,9 @@ static const double kOffsetMax = 30.0;
     if (_currentExtraOffsetMs == 0) return;
     if (_currentLyricData.sourceText.empty()) return;
 
-    // 把 extra offset 固化到 sourceText 的 [offset:] 标签中
     int64_t newTotalOffsetMs = _currentLyricData.offsetMs + _currentExtraOffsetMs;
     std::string newSourceText = _currentLyricData.sourceText;
 
-    // 查找并替换已有 [offset:] 行，或插入新行
     size_t offsetPos = newSourceText.find("[offset:");
     if (offsetPos != std::string::npos) {
         size_t endPos = newSourceText.find(']', offsetPos);
@@ -345,15 +451,13 @@ static const double kOffsetMax = 30.0;
             size_t eraseEnd = (lineEnd != std::string::npos) ? lineEnd : endPos + 1;
             newSourceText.erase(offsetPos, eraseEnd - offsetPos);
             if (lineEnd == std::string::npos && offsetPos > 0) {
-                newSourceText.insert(offsetPos, "\n");
-                offsetPos += 1;
+                newSourceText.insert(offsetPos, "\n"); offsetPos += 1;
             }
         }
     }
 
     std::string offsetLine = "[offset:" + std::to_string(newTotalOffsetMs) + "]";
     if (offsetPos == std::string::npos) {
-        // 插入在最后一个 id 标签之后
         size_t lastTag = std::string::npos;
         const char* idTags[] = {"[ti:", "[ar:", "[al:", "[by:", "[length:"};
         for (const char* tag : idTags) {
@@ -373,18 +477,16 @@ static const double kOffsetMax = 30.0;
         newSourceText.insert(offsetPos, offsetLine);
     }
 
-    // 重新解析、更新内存状态
     _currentLyricData = openlyrics::LrcParser::parse(newSourceText);
     _currentLyricData.sourceText = newSourceText;
     _currentExtraOffsetMs = 0;
 
-    // 覆写 .lrc
     PlaybackHub *hub = [PlaybackHub sharedHub];
     if ([hub hasTrack]) {
         openlyrics::TrackMeta meta = [hub currentTrack];
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-            openlyrics::FileSystemAdapter fsAdapter;
-            openlyrics::LyricStore store(fsAdapter);
+            openlyrics::FileSystemAdapter fs;
+            openlyrics::LyricStore store(fs);
             store.forceSave(meta, self->_currentLyricData);
         });
     }
@@ -407,20 +509,19 @@ static const double kOffsetMax = 30.0;
 
 - (void)viewWillAppear {
     [super viewWillAppear];
+    _config = openlyrics::ConfigAdapter().load();
+    openlyrics::HttpAdapter::setGlobalTimeout(_config.httpTimeoutSec);
+    [self.lyricView applyDisplayConfig:_config.display];
 
     [[PlaybackHub sharedHub] addObserver:self];
     [self handleTrackChanged];
 
     if (self.syncTimer == nil) {
         __weak __typeof__(self) weakSelf = self;
-        self.syncTimer = [NSTimer scheduledTimerWithTimeInterval:kSyncTickInterval
-                                                           repeats:YES
-                                                             block:^(NSTimer *timer) {
+        self.syncTimer = [NSTimer scheduledTimerWithTimeInterval:kSyncTickInterval repeats:YES
+                                                           block:^(NSTimer *timer) {
             __typeof__(self) strongSelf = weakSelf;
-            if (strongSelf == nil) {
-                [timer invalidate];
-                return;
-            }
+            if (strongSelf == nil) { [timer invalidate]; return; }
             [strongSelf tickSync];
         }];
     }
@@ -445,7 +546,7 @@ static const double kOffsetMax = 30.0;
     [self handleTrackChanged];
 }
 
-#pragma mark - 曲目切换
+#pragma mark - 曲目切换：动态源管线
 
 - (void)handleTrackChanged {
     self.trackRequestToken += 1;
@@ -463,9 +564,13 @@ static const double kOffsetMax = 30.0;
     }
 
     openlyrics::TrackMeta meta = [hub currentTrack];
-
-    NSString *title = meta.title.empty() ? @"(未知曲目)" : [NSString stringWithUTF8String:meta.title.c_str()];
+    NSString *title = meta.title.empty() ? @"(未知曲目)"
+        : [NSString stringWithUTF8String:meta.title.c_str()];
     self.statusLabel.stringValue = [NSString stringWithFormat:@"%@ · 检索歌词中…", title];
+
+    // 拷贝 config，后台闭包只读
+    openlyrics::AppConfig config = _config;
+    int maxFail = config.maxConsecutiveFailures;
 
     __weak __typeof__(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
@@ -477,7 +582,6 @@ static const double kOffsetMax = 30.0;
 
         openlyrics::LyricData resolved;
         bool found = pipeline.resolve(meta, resolved);
-
         std::string sourceLabel = "none";
         if (found) {
             openlyrics::LyricData tagProbe;
@@ -485,9 +589,10 @@ static const double kOffsetMax = 30.0;
         }
 
         bool onlineSaved = false;
-        auto trySource = [&](const char* label, const char* statusText, auto& provider, bool& found,
-                             openlyrics::LyricData& resolved, bool& saved, int& failures) -> bool {
-            if (failures >= kMaxConsecutiveFailures) return false;
+        auto trySource = [&](const char* label, const char* statusText, auto& provider,
+                             bool& found, openlyrics::LyricData& resolved,
+                             bool& saved, int& failures) -> bool {
+            if (failures >= maxFail) return false;
             dispatch_async(dispatch_get_main_queue(), ^{
                 __typeof__(self) strongSelf = weakSelf;
                 if (strongSelf == nil) return;
@@ -497,10 +602,7 @@ static const double kOffsetMax = 30.0;
             });
             openlyrics::LyricData data;
             if (provider.fetch(meta, data)) {
-                found = true;
-                resolved = data;
-                sourceLabel = label;
-                failures = 0;
+                found = true; resolved = data; sourceLabel = label; failures = 0;
                 openlyrics::LyricStore store(fsAdapter);
                 saved = store.save(meta, data);
                 return true;
@@ -509,33 +611,34 @@ static const double kOffsetMax = 30.0;
             return false;
         };
 
-        if (!found) {
-            if (_lrclibFailures < kMaxConsecutiveFailures) {
-                openlyrics::HttpAdapter httpAdapter;
-                openlyrics::LrcLibProvider lrcLib(httpAdapter);
-                trySource("online", "在线获取中…", lrcLib, found, resolved, onlineSaved, _lrclibFailures);
-            }
-        }
-        if (!found) {
-            if (_neteaseFailures < kMaxConsecutiveFailures) {
-                openlyrics::HttpAdapter httpAdapter;
+        // 按 config.sources 顺序遍历在线源
+        for (const auto& src : config.sources) {
+            if (found) break;
+            if (!src.enabled) continue;
+            if (src.key == "tag" || src.key == "local") continue;  // 已由 SearchPipeline 覆盖
+
+            if (src.key == "lrclib" && _lrclibFailures < maxFail) {
+                openlyrics::HttpAdapter http;
+                openlyrics::LrcLibProvider lrcLib(http);
+                trySource("online", "在线获取中…", lrcLib, found, resolved, onlineSaved,
+                          _lrclibFailures);
+            } else if (src.key == "netease" && _neteaseFailures < maxFail) {
+                openlyrics::HttpAdapter http;
                 openlyrics::CryptoAdapter crypto;
-                openlyrics::NetEaseProvider netease(httpAdapter, crypto);
-                trySource("netease", "正在搜索网易云…", netease, found, resolved, onlineSaved, _neteaseFailures);
-            }
-        }
-        if (!found) {
-            if (_qqmusicFailures < kMaxConsecutiveFailures) {
-                openlyrics::HttpAdapter httpAdapter;
+                openlyrics::NetEaseProvider netease(http, crypto);
+                trySource("netease", "正在搜索网易云…", netease, found, resolved, onlineSaved,
+                          _neteaseFailures);
+            } else if (src.key == "qqmusic" && _qqmusicFailures < maxFail) {
+                openlyrics::HttpAdapter http;
                 openlyrics::CryptoAdapter crypto;
-                openlyrics::QQMusicProvider qqmusic(httpAdapter, crypto);
-                trySource("qqmusic", "正在搜索QQ音乐…", qqmusic, found, resolved, onlineSaved, _qqmusicFailures);
+                openlyrics::QQMusicProvider qqmusic(http, crypto);
+                trySource("qqmusic", "正在搜索QQ音乐…", qqmusic, found, resolved, onlineSaved,
+                          _qqmusicFailures);
             }
         }
 
         if (!found) resolved = openlyrics::LyricData{};
 
-        // 控制台日志
         FB2K_console_print("foo_openlyrics: native path=", meta.path.c_str(),
                             found ? "  lyric=matched source=" : "  lyric=not-found source=",
                             sourceLabel.c_str(),
@@ -548,7 +651,7 @@ static const double kOffsetMax = 30.0;
             if (strongSelf.trackRequestToken != requestToken) return;
 
             strongSelf->_currentLyricData = resolved;
-            strongSelf->_currentExtraOffsetMs = 0;
+            strongSelf->_currentExtraOffsetMs = config.defaultOffsetMs;
             strongSelf->_currentSourceLabel = sourceLabel;
             [strongSelf.lyricView setLyricData:resolved];
             strongSelf.statusLabel.stringValue = found ? title
@@ -567,7 +670,7 @@ static const double kOffsetMax = 30.0;
 
     auto pc = playback_control::get();
     int64_t posMs = pc.is_empty() ? [hub positionMs]
-                                   : static_cast<int64_t>(pc->playback_get_position() * 1000.0 + 0.5);
+        : static_cast<int64_t>(pc->playback_get_position() * 1000.0 + 0.5);
     if (posMs < 0) posMs = 0;
 
     openlyrics::SyncResult result = openlyrics::SyncEngine::locate(
