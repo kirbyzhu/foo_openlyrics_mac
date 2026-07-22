@@ -40,16 +40,21 @@ cmake --build build --target foo_openlyrics && bash Scripts/install-component.sh
 ### 计划四 中文源（NetEase / QQ 音乐）（`docs/superpowers/plans/2026-07-22-plan4-chinese-sources.md`）
 `CryptoPort`（AES-128-CBC / 裸 RSA / 3DES-ECB / MD5）、`Base64`、`HttpClient::post`、`JsonField` 扩展（int/object 提取）、`NetEaseProvider`（weapi 双层 AES + 裸 RSA）、`QQMusicProvider`（搜索 + base64 解码）、`CryptoAdapter`（CommonCrypto + Security.framework + ASN.1 DER 手工构造）、`LyricPanelController` 五级管线（Tag→Local→LrcLib→NetEase→QQMusic）+ 失效隔离（单源连续 5 次失败禁用）。115/115 核心测试，5 个提交合入 main。
 
-**待人工验证（Task 6）：** 在 foobar2000 中找一首内嵌/本地/LrcLib 均无歌词的中文曲目，确认网易云或 QQ 音乐能拉取显示并落盘 .lrc。
+**待人工验证：** 计划四中文源命中与落盘，计划五搜索与 offset 微调，计划六编辑模式与配置页——均在 foobar2000 中操作确认。
 
-**当前可用能力**：嵌入式面板、五级取词（内嵌/本地/LrcLib/网易云/QQ音乐）、同步高亮平滑滚动、在线结果自动落盘缓存、断网优雅降级、失效源自动隔离。
+**当前可用能力**：嵌入式面板、五级取词（Tag/Local/LrcLib/NetEase/QQMusic 可配置顺序启停）、手动搜索 LrcLib 候选列表、面板内 offset 实时微调并持久化、面板内编辑歌词文本/时标并保存、偏好设置页（数据源/显示/高级三 tab）、同步高亮平滑滚动、在线结果自动落盘缓存、断网优雅降级、失效源自动隔离。
+
+### 计划五 手动搜索 + offset 微调（`docs/superpowers/plans/2026-07-22-plan5-manual-search-offset.md`）
+`LrcLibProvider::search()/fetchById()`、面板 NSSearchField + NSPopover 搜索结果、NSStepper offset 微调 + extraOffsetMs 实时生效、`LyricStore::forceSave()` 覆写已存在 .lrc、offset 写回 sourceText。123/123 核心测试，2 个提交合入 main。
+
+### 计划六 内置编辑器 + 配置页（`docs/superpowers/plans/2026-07-22-plan6-editor-config.md`）
+`AppConfig` 纯 C++ 配置模型 + JSON 序列化、`ConfigAdapter`（NSUserDefaults 持久化）、`preferences_page_v4`（数据源/显示/高级三 tab，拖拽排序）、NSTextView 编辑模式（LrcParser 回解析 + forceSave）、`LyricView::applyDisplayConfig`（字体/颜色/对齐/行距）、HttpAdapter 全局可配超时、defaultOffsetMs 自动生效。134/134 核心测试，2 个提交合入 main。
 
 ## 四、后续路线图
 
-按 subagent-driven-development 逐计划推进，每计划新建分支 → 写 `docs/superpowers/plans/<日期>-planN-*.md` → 驱动 → 整分支审查 → 合回 main。
-
-- **计划五 手动搜索 + 时轴 offset 微调**。手动搜索可接 LrcLib `/api/search?q=`（返回候选数组）；offset 面板内实时调并持久化（写回 `[offset:]` 或独立存储）。
-- **计划六 内置编辑器 + 配置页**。面板内编辑歌词文本与时标；`preferences_page` 承载源顺序/开关、保存目标与命名模板、字体字号颜色对齐行距、默认 offset、超时、日志级别等。
+计划一至六均已完成。后续迭代方向：
+- **计划七（待定）**：逐字高亮（word-level syllables）、翻译/双语歌词并排显示、Mini 模式（单行紧凑面板）。
+- **计划八（待定）**：Spotify/Apple Music 等流媒体源、Last.fm scrobbling 回调、歌词社区贡献上传。
 
 ## 五、遗留 Minor 待办（非阻塞，可顺手清）
 
