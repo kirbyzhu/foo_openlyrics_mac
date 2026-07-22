@@ -169,6 +169,8 @@ LyricData LrcParser::parse(const std::string& text) {
                              return a.timeMs < b.timeMs;
                          });
     }
+
+    data.sourceText = text;
     return data;
 }
 

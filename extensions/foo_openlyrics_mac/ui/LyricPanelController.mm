@@ -2,19 +2,25 @@
 // foo_openlyrics_mac —— Plan 2 Task 2：最小占位歌词面板控制器实现；
 // Task 3：向 PlaybackHub 注册/注销，显示 "<title> — <mm:ss>"；
 // Task 5：接线 SearchPipeline（Tag→本地）取歌词、LyricView 承载渲染、SyncEngine 驱动
-// 高亮与滚动，完成计划二的展示闭环。
+// 高亮与滚动，完成计划二的展示闭环；
+// Plan 3 Task 6：本地管线未命中时补一段在线检索（LrcLibProvider）+ 命中自动落盘
+// （LyricStore），完成计划三的在线拉取闭环。
 //
-// 线程切分（对照 task-5-brief.md 的"threading & safety"要求逐条核对过）：
+// 线程切分（对照 task-5-brief.md / task-6-brief.md 的"threading & safety"要求逐条核对过）：
 //   - PlaybackHub 的 -playbackHubDidChange 回调固定在主线程触发（PlaybackBridge.h 顶部注释）。
 //     本控制器在该回调里，同样在主线程上从 hub 取出当前 TrackMeta（纯值拷贝，无 metadb 访问）。
 //   - 真正耗时的检索工作——TagSource 命中与否要经 TagIOAdapter 摸 metadb，LocalFileSource
-//     命中与否要摸磁盘——整个 SearchPipeline::resolve() 调用被丢到后台并发队列执行，避免
-//     阻塞主线程/UI。TagIOAdapter 自己知道要不要把 metadb 访问点切回主线程（见其 .mm 顶部
-//     注释），FileSystemAdapter 纯标准库 I/O 本就可以安全跑在任意线程，两者都不需要
-//     LyricPanelController 关心线程细节，只管把 resolve() 扔进后台队列即可。
-//   - resolve() 的结果（纯 C++ 值 LyricData）拷贝一份，dispatch 回主线程后才碰 LyricView
+//     命中与否要摸磁盘，在线段还要发网络请求——整个流程（本地 SearchPipeline::resolve()
+//     + 在线 LrcLibProvider::fetch() + 命中后的 LyricStore::save()）被丢到后台并发队列
+//     执行，避免阻塞主线程/UI。TagIOAdapter 自己知道要不要把 metadb 访问点切回主线程
+//     （见其 .mm 顶部注释），FileSystemAdapter 纯标准库 I/O、HttpAdapter 的 NSURLSession
+//     同步阻塞（见其 .mm 顶部注释，明确禁止主线程调用）都天然要求跑在后台线程，两者都
+//     不需要 LyricPanelController 关心线程细节，只管把整段检索逻辑扔进后台队列即可。
+//   - 检索结果（纯 C++ 值 LyricData）拷贝一份，dispatch 回主线程后才碰 LyricView
 //     （AppKit 对象，只能主线程访问）。用自增的 _trackRequestToken 识别"结果算出来时曲目
-//     是否已经又切了"，过期结果直接丢弃，不会用旧曲目的歌词错误覆盖新曲目。
+//     是否已经又切了"，过期结果直接丢弃，不会用旧曲目的歌词错误覆盖新曲目——在线段耗时
+//     明显更长（网络往返），这个 token 校验尤其重要：慢的在线结果回来时曲目可能已经
+//     再切了几次，token 不匹配就直接丢弃，不会用过期在线结果覆盖新曲目的展示。
 //   - 播放位置沿用原有 NSTimer 轮询 playback_control::get()->playback_get_position()
 //     （主线程 API），间隔从 0.25s 收紧到 0.06s：SyncEngine::locate 本身是纯内存运算，
 //     更高频轮询几乎不增加开销，换来的是 LyricView 高亮切换/滚动目标更新更跟手。
@@ -24,10 +30,13 @@
 #import "LyricView.h"
 #import "TagIOAdapter.h"
 #import "FileSystemAdapter.h"
+#import "HttpAdapter.h"
 
 #include "sources/TagSource.h"
 #include "sources/LocalFileSource.h"
+#include "sources/LrcLibProvider.h"
 #include "pipeline/SearchPipeline.h"
+#include "store/LyricStore.h"
 #include "sync/SyncEngine.h"
 #include "model/LyricData.h"
 
@@ -169,14 +178,55 @@ static const NSTimeInterval kSyncTickInterval = 0.06;
         openlyrics::SearchPipeline pipeline({&tagSource, &localSource});
 
         openlyrics::LyricData resolved;
-        const bool found = pipeline.resolve(meta, resolved);
+        bool found = pipeline.resolve(meta, resolved);
+
+        // 诊断用：SearchPipeline::resolve 本身按 bool 短路，不暴露具体是哪个子 source
+        // 命中；这里额外做一次 tagSource.fetch 探测（TagIOAdapter 读的是已缓存的
+        // file_info，无磁盘 I/O，开销可忽略）区分"内嵌标签"与"同目录 .lrc 文件"，
+        // 方便用户在控制台核对歌词到底从哪来。不影响真正走 SearchPipeline 的解析结果。
+        std::string sourceLabel = "none";
+        if (found) {
+            openlyrics::LyricData tagProbe;
+            sourceLabel = tagSource.fetch(meta, tagProbe) ? "tag" : "local";
+        }
+
+        bool onlineSaved = false;
+        if (!found) {
+            // 本地（内嵌标签 + 同目录 .lrc）都未命中：切状态行到"在线获取中…"，
+            // 让用户知道面板仍在工作而非卡死，再尝试 LrcLib 在线检索。
+            dispatch_async(dispatch_get_main_queue(), ^{
+                __typeof__(self) strongSelf = weakSelf;
+                if (strongSelf == nil) return;
+                if (strongSelf.trackRequestToken != requestToken) return;  // 曲目已再次切换
+                strongSelf.statusLabel.stringValue = [NSString stringWithFormat:@"%@ · 在线获取中…", title];
+            });
+
+            openlyrics::HttpAdapter httpAdapter;
+            openlyrics::LrcLibProvider onlineProvider(httpAdapter);
+            openlyrics::LyricData onlineData;
+            if (onlineProvider.fetch(meta, onlineData)) {
+                found = true;
+                resolved = onlineData;
+                sourceLabel = "online";
+
+                // 命中后自动落盘：写到 <音频名>.lrc，下次同一曲目本地精确步就能直接
+                // 命中，不必再打网络请求。best-effort——写盘失败（如目录不可写）不影响
+                // 本次已经取到的在线歌词照常展示，只在控制台日志里体现保存与否。
+                openlyrics::LyricStore store(fsAdapter);
+                onlineSaved = store.save(meta, onlineData);
+            }
+        }
+
         if (!found) resolved = openlyrics::LyricData{};
 
         // Task 5 补丁：Bug #1（get_path() 未转原生路径）修好后，留一行诊断日志方便用户在
-        // 控制台面板核对——曲目切换时到底解析出了哪条原生路径、有没有摸到歌词文件。
+        // 控制台面板核对——曲目切换时到底解析出了哪条原生路径、有没有摸到歌词文件，以及
+        // 是本地（tag/local）还是在线（online）命中、在线命中时是否已落盘。
         // console:: 命名空间函数全线程安全（console.h:4），可以直接在后台队列调用。
         FB2K_console_print("foo_openlyrics: native path=", meta.path.c_str(),
-                            found ? "  lyric=matched" : "  lyric=not-found");
+                            found ? "  lyric=matched source=" : "  lyric=not-found source=",
+                            sourceLabel.c_str(),
+                            sourceLabel == "online" ? (onlineSaved ? "  saved=yes" : "  saved=no") : "");
 
         dispatch_async(dispatch_get_main_queue(), ^{
             __typeof__(self) strongSelf = weakSelf;

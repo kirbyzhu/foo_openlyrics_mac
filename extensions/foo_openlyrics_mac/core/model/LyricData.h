@@ -22,6 +22,7 @@ struct LyricData {
     std::vector<std::pair<std::string, std::string>> tags;    // ID 标签，如 ti/ar/al/by
     int64_t offsetMs = 0;                                     // [offset:] 值，毫秒
     bool synced = false;                                      // 是否含有效时标行
+    std::string sourceText;                                   // 原始输入文本，用于无损存储
 };
 
 }  // namespace openlyrics

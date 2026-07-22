@@ -169,3 +169,13 @@ TEST(LrcParser, MultiLeadingTimestampsStillExpandWithInlineStrip) {
     EXPECT_EQ(d.lines[0].text, "repeat");
     EXPECT_EQ(d.lines[1].text, "repeat");
 }
+
+TEST(LrcParser, SourceTextCapturesRawInput) {
+    LyricData d = LrcParser::parse("[00:01.00]a");
+    EXPECT_EQ(d.sourceText, "[00:01.00]a");
+}
+
+TEST(LrcParser, SourceTextEmptyForEmptyInput) {
+    LyricData d = LrcParser::parse("");
+    EXPECT_EQ(d.sourceText, "");
+}
