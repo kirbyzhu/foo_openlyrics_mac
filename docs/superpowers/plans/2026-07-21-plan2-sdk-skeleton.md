@@ -177,27 +177,48 @@ P0（Task 1-2）已验证 SDK 编译、面板加载、打包安装与文本布�
 
 **判据：** 面板随播放实时显示曲目标题与位置，证明 SDK→核心→面板数据流通。
 
-### Task 4: 展示闭环 —— 适配器 + TagSource/LocalFileSource + LyricView
+### Task 4: 歌词源与检索管线（纯 C++，TDD）
 
 **Files:**
-- Create: `extensions/foo_openlyrics_mac/platform/TagIOAdapter.mm`（实现计划一 `TagIO` 端口，读内嵌歌词标签）
-- Create: `extensions/foo_openlyrics_mac/platform/FileSystemAdapter.mm`（实现 `FileSystem` 端口）
-- Create: `extensions/foo_openlyrics_mac/core/sources/TagSource.*`、`LocalFileSource.*`、`core/pipeline/SearchPipeline.*`（计划一未建的核心件，纯 C++，可单测）
-- Create: `extensions/foo_openlyrics_mac/ui/LyricView.mm/.h`（整行高亮 + 平滑滚动的 NSView）
-- Modify: 面板改为宿主 LyricView，接 SyncEngine
-- Modify: `CMakeLists.txt`、`tests/`（TagSource/LocalFileSource/SearchPipeline 单测）
+- Create: `extensions/foo_openlyrics_mac/core/sources/LyricSource.h`（抽象接口，若计划一未建）
+- Create: `extensions/foo_openlyrics_mac/core/sources/TagSource.h/.cpp`
+- Create: `extensions/foo_openlyrics_mac/core/sources/LocalFileSource.h/.cpp`
+- Create: `extensions/foo_openlyrics_mac/core/pipeline/SearchPipeline.h/.cpp`
+- Create: `tests/test_tag_source.cpp`、`tests/test_local_file_source.cpp`、`tests/test_search_pipeline.cpp`
+- Modify: `CMakeLists.txt`（新增源与测试）
 
 **Interfaces:**
-- Consumes: 计划一 `LrcParser`、`SyncEngine`、端口 `TagIO`/`FileSystem`；Task 3 `PlaybackHub`
-- Produces: `TagSource`/`LocalFileSource`（实现 `LyricSource`）、`SearchPipeline`（本地档降级）；`LyricView` 消费 `SyncResult` 渲染。
+- Consumes: 计划一 `LrcParser`、`LyricData`、端口 `TagIO`/`FileSystem`、`TrackMeta`
+- Produces:
+  - `class LyricSource { virtual ~LyricSource()=default; virtual bool fetch(const TrackMeta&, LyricData& out) = 0; };`（首版本地源无需搜索候选，`fetch` 直接给结果，命中返回 true）
+  - `TagSource(TagIO&)`：`fetch` 读内嵌歌词标签，非空则 `LrcParser::parse` 填 out。
+  - `LocalFileSource(FileSystem&)`：按 `TrackMeta.path` 的 basename 在同目录找 `.lrc`（优先）/`.txt`，读到则 parse。
+  - `SearchPipeline`：持有有序 source 列表，`resolve(const TrackMeta&, LyricData& out)` 按序 fetch，命中即短路返回 true。
 
-- [ ] Step 1: 纯 C++ 侧 TDD（可单测）：`TagSource`（注入 TagIO 读内嵌）、`LocalFileSource`（注入 FileSystem 按 basename 找同目录 .lrc/.txt）、`SearchPipeline`（按序 Tag→本地，命中短路），用假端口写测试。
-- [ ] Step 2: 平台适配器：`TagIOAdapter` 用 metadb/file_info 读常见歌词标签（LYRICS/UNSYNCEDLYRICS，对照 `SDK/file_info.h`）；`FileSystemAdapter` 用标准库/NSFileManager。
-- [ ] Step 3: `LyricView`（NSView）：给定 `LyricData` 与当前 `SyncResult`，整行高亮当前行、平滑居中滚动（NSTimer ~60ms 插值）；字体/颜色先硬编码默认。
-- [ ] Step 4: 面板接线：曲目切换（PlaybackHub 通知）→ 后台 SearchPipeline 取歌词 → 主线程交 LyricView；面板 timer 轮询位置 → SyncEngine.locate → LyricView 更新。
-- [ ] Step 5: 构建 + 签名 + 安装；纯 C++ 单测全绿。
-- [ ] Step 6: 提交（中文动宾）。
-- [ ] Step 7: 人工验证：播放带内嵌歌词或同目录 .lrc 的曲目，面板随播放高亮当前行并平滑居中滚动；无歌词时显示占位。
+- [ ] Step 1-N: 每个类走 TDD（失败测试→实现→通过），用计划一已有的假端口（`tests/test_ports.cpp` 里的 FakeFs/FakeTagIO 模式）注入。覆盖：TagSource 有/无标签；LocalFileSource 找到 .lrc / 回退 .txt / 都无 / basename 含空格；SearchPipeline 短路命中与全空。
+- [ ] 末步: 全套单测绿（计划一 34 + 新增），提交（中文动宾）。
+
+**判据：** 三个纯 C++ 件有真实测试覆盖，脱离 foobar2000 命令行全绿。
+
+### Task 5: 平台适配器 + LyricView + 面板接线（GUI 验证）
+
+**Files:**
+- Create: `extensions/foo_openlyrics_mac/platform/TagIOAdapter.mm/.h`（实现 `TagIO`，读内嵌歌词标签）
+- Create: `extensions/foo_openlyrics_mac/platform/FileSystemAdapter.mm/.h`（实现 `FileSystem`）
+- Create: `extensions/foo_openlyrics_mac/ui/LyricView.mm/.h`（整行高亮 + 平滑滚动 NSView）
+- Modify: `LyricPanelController.mm`（宿主 LyricView，接 PlaybackHub + SearchPipeline + SyncEngine）
+- Modify: `CMakeLists.txt`
+
+**Interfaces:**
+- Consumes: Task 4 的 `TagSource`/`LocalFileSource`/`SearchPipeline`、计划一 `SyncEngine`、Task 3 `PlaybackHub`
+- Produces: `TagIOAdapter`（metadb/file_info 读 LYRICS/UNSYNCEDLYRICS 等，对照 `SDK/file_info.h`、`metadb_handle.h`）、`FileSystemAdapter`（NSFileManager/标准库）、`LyricView`（消费 `LyricData`+`SyncResult` 渲染）。
+
+- [ ] Step 1: `TagIOAdapter`/`FileSystemAdapter` 实现端口。TagIOAdapter 从 `metadb_handle` 的 `file_info` 读常见歌词标签字段（LYRICS、UNSYNCEDLYRICS、大小写与多字段兼容）。
+- [ ] Step 2: `LyricView`（NSView）：给定 `LyricData` 与 `SyncResult`，整行高亮当前行、平滑居中滚动（NSTimer ~60ms 插值当前行到目标偏移）；字体/颜色硬编码默认，无歌词显示占位。
+- [ ] Step 3: 面板接线：曲目切换（PlaybackHub 通知）→ 后台队列跑 `SearchPipeline`（Tag→本地）取 `LyricData` → 主线程交 LyricView；面板 timer 轮询位置 → `SyncEngine::locate` → LyricView 更新高亮与滚动。
+- [ ] Step 4: 构建 + 签名 + 安装；core_tests 与 Task 4 单测不受影响。
+- [ ] Step 5: 提交（中文动宾）。
+- [ ] Step 6: 人工验证：播放带内嵌歌词或同目录 .lrc 的曲目，面板随播放高亮当前行并平滑居中滚动；无歌词显示占位。（subagent 构建安装后 DONE_WITH_CONCERNS 交回人验证。）
 
 **判据：** 带内嵌/本地歌词的曲目在面板内同步高亮滚动，计划二展示闭环完成。
 
