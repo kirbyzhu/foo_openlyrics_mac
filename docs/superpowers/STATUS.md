@@ -37,28 +37,16 @@ cmake --build build --target foo_openlyrics && bash Scripts/install-component.sh
 ### 计划三 LrcLib 在线拉取与自动保存（`docs/superpowers/plans/2026-07-22-plan3-lrclib.md`）
 `core/net/UrlEncode`（RFC3986）、`core/net/JsonField`（自写顶层 JSON 提取 + 反转义，无三方库）、`core/sources/LrcLibProvider`、`core/store/LyricStore`（写 `<音频名>.lrc`，落盘前查重不覆盖已存在文件）、`platform/HttpAdapter`（NSURLSession 同步 + 11s 硬超时 + 默认 UA，仅后台线程）。接线：Tag→本地→（未命中再）LrcLib→命中先落盘再显示。
 
-**当前可用能力**：嵌入式面板、内嵌/本地/在线三级取词、同步高亮平滑滚动、在线结果自动落盘缓存、断网优雅降级。
+### 计划四 中文源（NetEase / QQ 音乐）（`docs/superpowers/plans/2026-07-22-plan4-chinese-sources.md`）
+`CryptoPort`（AES-128-CBC / 裸 RSA / 3DES-ECB / MD5）、`Base64`、`HttpClient::post`、`JsonField` 扩展（int/object 提取）、`NetEaseProvider`（weapi 双层 AES + 裸 RSA）、`QQMusicProvider`（搜索 + base64 解码）、`CryptoAdapter`（CommonCrypto + Security.framework + ASN.1 DER 手工构造）、`LyricPanelController` 五级管线（Tag→Local→LrcLib→NetEase→QQMusic）+ 失效隔离（单源连续 5 次失败禁用）。115/115 核心测试，5 个提交合入 main。
+
+**待人工验证（Task 6）：** 在 foobar2000 中找一首内嵌/本地/LrcLib 均无歌词的中文曲目，确认网易云或 QQ 音乐能拉取显示并落盘 .lrc。
+
+**当前可用能力**：嵌入式面板、五级取词（内嵌/本地/LrcLib/网易云/QQ音乐）、同步高亮平滑滚动、在线结果自动落盘缓存、断网优雅降级、失效源自动隔离。
 
 ## 四、后续路线图
 
 按 subagent-driven-development 逐计划推进，每计划新建分支 → 写 `docs/superpowers/plans/<日期>-planN-*.md` → 驱动 → 整分支审查 → 合回 main。
-
-### 计划四 中文源（NetEase / QQ 音乐）（`plan4-chinese-sources` 分支，进行中）
-
-**已完成（Task 1-5）：**
-- `CryptoPort` 加密原语端口（AES-128-CBC / 裸 RSA / 3DES-ECB / MD5）
-- `Base64` 编解码工具
-- `HttpClient::post` 方法扩展
-- `JsonField` 扩展（`jsonGetInt`、`jsonGetObject` 链式取值）
-- `NetEaseProvider`：weapi 双层 AES 加密 + 裸 RSA 签名，搜索 + 取词两步
-- `QQMusicProvider`：搜索 + 取词 + base64 解码
-- `CryptoAdapter`（平台层）：CommonCrypto + Security.framework 实现全部原语，含 RSA ASN.1 DER 构造
-- `LyricPanelController` 五级管线（Tag→Local→LrcLib→NetEase→QQMusic）+ 失效隔离（单源连续 5 次失败禁用）
-- 115/115 核心测试通过
-
-**待完成（Task 6）：** 人工端到端验证——在 foobar2000 中找一首只有网易云/QQ 音乐有歌词的中文曲目验证。
-
-核心新增文件清单：`CryptoPort.h`、`Base64.h/.cpp`、`NetEaseProvider.h/.cpp`、`QQMusicProvider.h/.cpp`、`CryptoAdapter.h/.mm`，修改 `HttpClient.h`（加 post）、`JsonField.h/.cpp`（加 int/object 提取）、`HttpAdapter.h/.mm`（加 post 实现）、`LyricPanelController.mm`（五级管线）、`CMakeLists.txt`（新文件+Security framework）。
 
 - **计划五 手动搜索 + 时轴 offset 微调**。手动搜索可接 LrcLib `/api/search?q=`（返回候选数组）；offset 面板内实时调并持久化（写回 `[offset:]` 或独立存储）。
 - **计划六 内置编辑器 + 配置页**。面板内编辑歌词文本与时标；`preferences_page` 承载源顺序/开关、保存目标与命名模板、字体字号颜色对齐行距、默认 offset、超时、日志级别等。
