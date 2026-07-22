@@ -4,7 +4,7 @@
 
 ## 一、项目概览
 
-foobar2000 macOS 歌词显示组件，参考 Windows 的 foo_openlyrics。仓库 `/Users/zhuww/foo_openlyrics_mac`（git，工作在 `main`）。
+foobar2000 macOS 歌词显示组件，参考 Windows 的 foo_openlyrics。本地工作副本置于 `~/foo_openlyrics_mac`（git，工作在 `main`）。
 
 三层解耦架构：
 - Layer A 可移植核心 `core/`（纯 C++17，零 SDK/AppKit，命名空间 `openlyrics`，命令行可单测）。
