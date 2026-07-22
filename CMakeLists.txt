@@ -45,6 +45,10 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/platform/FileSystemAdapter.mm
     extensions/foo_openlyrics_mac/ui/LyricView.mm
     extensions/foo_openlyrics_mac/ui/LyricPanelController.mm
+    # Plan 3 Task 6：HttpClient 端口的 NSURLSession 实现，在线（LrcLib）检索+自动
+    # 落盘接线用它替 SearchPipeline 之外的补充在线段（不进 SearchPipeline 本身，
+    # 见 LyricPanelController.mm 顶部注释）。
+    extensions/foo_openlyrics_mac/platform/HttpAdapter.mm
   )
   set_target_properties(foo_openlyrics PROPERTIES
     PREFIX ""
@@ -58,6 +62,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/platform/FileSystemAdapter.mm
     extensions/foo_openlyrics_mac/ui/LyricView.mm
     extensions/foo_openlyrics_mac/ui/LyricPanelController.mm
+    extensions/foo_openlyrics_mac/platform/HttpAdapter.mm
     PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
   )
   target_include_directories(foo_openlyrics PRIVATE
