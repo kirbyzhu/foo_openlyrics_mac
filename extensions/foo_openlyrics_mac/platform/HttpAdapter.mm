@@ -86,8 +86,15 @@ HttpResponse HttpAdapter::get(const std::string& url,
             DISPATCH_TIME_NOW, (int64_t)((kRequestTimeoutSeconds + 1.0) * NSEC_PER_SEC));
         if (dispatch_semaphore_wait(sem, deadline) != 0) {
             [task cancel];
+            [session finishTasksAndInvalidate];
             return response;  // status=0, body=""
         }
+
+        // session 用完即弃——不 invalidate 会导致底层队列随每次 get() 调用持续累积
+        // （Apple 文档：NSURLSession 必须显式 invalidate 或随进程退出才释放）。此处任务
+        // 已在上面的 wait 里跑完，用 finishTasksAndInvalidate 而非 invalidateAndCancel，
+        // 避免打断刚完成任务的收尾（如 completionHandler 内部清理）。
+        [session finishTasksAndInvalidate];
 
         response.status = static_cast<int>(statusCode);
         if (bodyData != nil) {
