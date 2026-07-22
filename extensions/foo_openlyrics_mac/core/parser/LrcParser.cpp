@@ -67,6 +67,38 @@ std::string trim(const std::string& s) {
     return s.substr(a, b - a + 1);
 }
 
+// 剥离字符串中所有内联/尾随的合法时标 [mm:ss.xx]，非时标方括号（如 [chorus]）原样保留。
+// 用于增强型/逐字 LRC：内容中除行首时标外还嵌有多个时标时，去除这些时标本身，
+// 其余字符（含空格、非时标方括号）保持不变。
+std::string stripInlineTimeTags(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    size_t pos = 0;
+    while (pos < s.size()) {
+        if (s[pos] == '[') {
+            size_t close = s.find(']', pos);
+            if (close == std::string::npos) {
+                out.append(s, pos, s.size() - pos);
+                break;
+            }
+            std::string body = s.substr(pos + 1, close - pos - 1);
+            int64_t ms = 0;
+            if (parseTimeTag(body, ms)) {
+                // 合法时标，丢弃整个 [...]
+                pos = close + 1;
+                continue;
+            }
+            // 非时标方括号，原样保留
+            out.append(s, pos, close - pos + 1);
+            pos = close + 1;
+        } else {
+            out.push_back(s[pos]);
+            ++pos;
+        }
+    }
+    return out;
+}
+
 }  // namespace
 
 LyricData LrcParser::parse(const std::string& text) {
@@ -111,10 +143,11 @@ LyricData LrcParser::parse(const std::string& text) {
 
         std::string content = raw.substr(pos);
         if (!times.empty()) {
+            std::string strippedContent = stripInlineTimeTags(content);
             for (int64_t t : times) {
                 LyricLine line;
                 line.timeMs = t;
-                line.text = content;
+                line.text = strippedContent;
                 data.lines.push_back(line);
             }
         } else if (!consumed || !trim(content).empty()) {

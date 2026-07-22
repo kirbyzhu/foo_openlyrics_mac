@@ -129,3 +129,43 @@ TEST(LrcParser, TagLineTrailingWhitespaceNoSpuriousLine) {
     EXPECT_EQ(d.lines[0].timeMs, 1000);
     EXPECT_EQ(d.lines[0].text, "x");
 }
+
+TEST(LrcParser, StripsInlineWordTimestamps) {
+    LyricData d = LrcParser::parse(
+        "[00:01.07]突[00:01.58]然[00:01.79]的[00:02.00]自[00:02.16]我");
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_EQ(d.lines[0].timeMs, 1070);
+    EXPECT_EQ(d.lines[0].text, "突然的自我");
+}
+
+TEST(LrcParser, StripsTrailingTimestamp) {
+    LyricData d = LrcParser::parse("[00:30.70]词：徐克[00:30.70]");
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_EQ(d.lines[0].timeMs, 30700);
+    EXPECT_EQ(d.lines[0].text, "词：徐克");
+}
+
+TEST(LrcParser, InlineStripKeepsNonTimeBrackets) {
+    LyricData d = LrcParser::parse("[00:01.00]hello [world] ok");
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_EQ(d.lines[0].text, "hello [world] ok");
+}
+
+TEST(LrcParser, InlineStripKeepsSpacesBetweenWords) {
+    LyricData d = LrcParser::parse("[00:01.00]我 [00:02.36]- [00:02.58]伍");
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_EQ(d.lines[0].text, "我 - 伍");
+}
+
+TEST(LrcParser, StandardLineTextUnaffectedByInlineStrip) {
+    LyricData d = LrcParser::parse("[00:12.34]Hello world");
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_EQ(d.lines[0].text, "Hello world");
+}
+
+TEST(LrcParser, MultiLeadingTimestampsStillExpandWithInlineStrip) {
+    LyricData d = LrcParser::parse("[00:01.00][00:03.00]repeat");
+    ASSERT_EQ(d.lines.size(), 2u);
+    EXPECT_EQ(d.lines[0].text, "repeat");
+    EXPECT_EQ(d.lines[1].text, "repeat");
+}
