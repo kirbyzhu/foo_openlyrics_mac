@@ -9,12 +9,14 @@
 //
 // 线程模型：本文件对照 SDK 注释核实——playback_control 的方法明确"仅主线程可调用，否则不生效
 // 或抛异常"（SDK/playback_control.h:4）；metadb/metadb_handle 一族虽未见同样措辞的强约束，
-// 但 metadb_handle::get_info() 的文档提到"会临时锁住 metadb，不可在禁止加锁的上下文调用"，
-// 且"缓存状态只在主线程变化"（SDK/metadb_handle.h:63-64/67-68）。保守起见，本适配器把真正的
-// metadb::handle_create() + metadb_handle::get_info() 调用统一收敛到主线程执行：
-// readLyricTag() 若发现自己被非主线程调用（即 SearchPipeline::resolve 跑在
-// LyricPanelController.mm 的后台队列时），用 dispatch_sync 切回主线程再做实际查询，
-// 查询本身很轻（只读已缓存的 file_info，不做磁盘 I/O），dispatch_sync 的往返开销可忽略。
+// 但已废弃的 metadb_handle::get_info(file_info&) 的文档曾提到"会临时锁住 metadb，不可在
+// 禁止加锁的上下文调用"，且"缓存状态只在主线程变化"（SDK/metadb_handle.h:63-64/67-68）。
+// 本文件现改用 get_info_ref()（SDK/metadb_handle.h:111），其文档明确"无锁语义，可在任意
+// 上下文调用"，但保守起见仍不改动既有线程收敛策略：把真正的 metadb::handle_create() +
+// metadb_handle::get_info_ref() 调用统一收敛到主线程执行：readLyricTag() 若发现自己被
+// 非主线程调用（即 SearchPipeline::resolve 跑在 LyricPanelController.mm 的后台队列时），
+// 用 dispatch_sync 切回主线程再做实际查询，查询本身很轻（只读已缓存的 file_info，
+// 不做磁盘 I/O），dispatch_sync 的往返开销可忽略。
 #import "TagIOAdapter.h"
 #import "stdafx.h"
 
@@ -30,12 +32,16 @@ bool ReadLyricTagOnMainThread(const std::string& path, std::string& out) {
     if (db.is_empty()) return false;
 
     // handle_create 只是"取或建" metadb_handle，不做磁盘访问；真正的标签数据来自
-    // 下面 get_info() 读取的缓存 file_info（通常已在库扫描/播放开始时加载好）。
+    // 下面 get_info_ref() 读取的缓存 file_info（通常已在库扫描/播放开始时加载好）。
     metadb_handle_ptr handle = db->handle_create(path.c_str(), 0);
     if (handle.is_empty()) return false;
 
-    file_info_impl info;
-    if (!handle->get_info(info)) return false;
+    // metadb_handle::get_info(file_info&) 已标注 Obsolete，改用 get_info_ref() 家族
+    // （SDK/metadb_handle.h:111，bool 版本保留"有缓存信息才返回 true"语义），
+    // info() 返回 const file_info&（SDK/metadb_handle.h:14）。
+    metadb_info_container::ptr infoRef;
+    if (!handle->get_info_ref(infoRef)) return false;
+    const file_info &info = infoRef->info();
 
     static const char* kCandidateFields[] = {"LYRICS", "UNSYNCEDLYRICS", "SYNCEDLYRICS"};
     for (const char* field : kCandidateFields) {

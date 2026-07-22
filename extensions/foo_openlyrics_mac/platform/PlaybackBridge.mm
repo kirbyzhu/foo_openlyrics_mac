@@ -41,8 +41,14 @@ TrackMeta MakeTrackMeta(const metadb_handle_ptr &track) {
 
     meta.path = ToNativePath(track->get_path());
 
-    file_info_impl info;
-    if (track->get_info(info)) {
+    // metadb_handle::get_info(file_info&) 已标注 Obsolete（SDK/metadb_handle.h:66-69），
+    // 改用 get_info_ref() 家族：SDK/metadb_handle.h:111 声明的
+    // bool get_info_ref(metadb_info_container::ptr&) 保留了与旧接口一致的
+    // "有缓存信息才返回 true" 语义，容器的 info()（SDK/metadb_handle.h:14）
+    // 返回 const file_info&，供下面按原字段原样读取。
+    metadb_info_container::ptr infoRef;
+    if (track->get_info_ref(infoRef)) {
+        const file_info &info = infoRef->info();
         const char *title = info.meta_get_title(nullptr);
         if (title != nullptr) meta.title = title;
 
