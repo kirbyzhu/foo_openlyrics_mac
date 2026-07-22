@@ -15,6 +15,9 @@ add_library(openlyrics_core STATIC
   extensions/foo_openlyrics_mac/core/parser/LrcParser.cpp
   extensions/foo_openlyrics_mac/core/parser/LrcSerializer.cpp
   extensions/foo_openlyrics_mac/core/sync/SyncEngine.cpp
+  extensions/foo_openlyrics_mac/core/sources/TagSource.cpp
+  extensions/foo_openlyrics_mac/core/sources/LocalFileSource.cpp
+  extensions/foo_openlyrics_mac/core/pipeline/SearchPipeline.cpp
 )
 target_include_directories(openlyrics_core PUBLIC extensions/foo_openlyrics_mac/core)
 
@@ -79,6 +82,9 @@ add_executable(core_tests
   tests/test_lrc_serializer.cpp
   tests/test_sync_engine.cpp
   tests/test_ports.cpp
+  tests/test_tag_source.cpp
+  tests/test_local_file_source.cpp
+  tests/test_search_pipeline.cpp
 )
 target_link_libraries(core_tests PRIVATE openlyrics_core GTest::gtest_main)
 
