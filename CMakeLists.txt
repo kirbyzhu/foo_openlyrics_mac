@@ -24,6 +24,7 @@ add_library(openlyrics_core STATIC
   extensions/foo_openlyrics_mac/core/store/LyricStore.cpp
   extensions/foo_openlyrics_mac/core/net/Base64.cpp
   extensions/foo_openlyrics_mac/core/sources/NetEaseProvider.cpp
+  extensions/foo_openlyrics_mac/core/sources/QQMusicProvider.cpp
 )
 target_include_directories(openlyrics_core PUBLIC extensions/foo_openlyrics_mac/core)
 
@@ -109,6 +110,7 @@ add_executable(core_tests
   tests/test_lrclib_provider.cpp
   tests/test_lyric_store.cpp
   tests/test_netease_provider.cpp
+  tests/test_qqmusic_provider.cpp
 )
 target_link_libraries(core_tests PRIVATE openlyrics_core GTest::gtest_main)
 

@@ -22,4 +22,35 @@ std::string base64Encode(const std::string& data) {
     return out;
 }
 
+namespace {
+unsigned char decodeChar(char c) {
+    if (c >= 'A' && c <= 'Z') return static_cast<unsigned char>(c - 'A');
+    if (c >= 'a' && c <= 'z') return static_cast<unsigned char>(c - 'a' + 26);
+    if (c >= '0' && c <= '9') return static_cast<unsigned char>(c - '0' + 52);
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return 255;  // 非法字符（含 '='）
+}
+}  // namespace
+
+std::string base64Decode(const std::string& data) {
+    std::string out;
+    out.reserve((data.size() / 4) * 3);
+    for (size_t i = 0; i + 3 < data.size(); i += 4) {
+        unsigned char a = decodeChar(data[i]);
+        unsigned char b = decodeChar(data[i + 1]);
+        unsigned char c = decodeChar(data[i + 2]);
+        unsigned char d = decodeChar(data[i + 3]);
+        if (a == 255 || b == 255) return {};
+        out.push_back(static_cast<char>((a << 2) | (b >> 4)));
+        if (c != 255) {
+            out.push_back(static_cast<char>((b << 4) | (c >> 2)));
+            if (d != 255) {
+                out.push_back(static_cast<char>((c << 6) | d));
+            }
+        }
+    }
+    return out;
+}
+
 }  // namespace openlyrics
