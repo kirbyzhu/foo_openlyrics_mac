@@ -163,3 +163,61 @@ TEST(LyricStore, ExistingCaseInsensitiveAlsoBlocks) {
     EXPECT_EQ(fs.files["/m/Song.LRC"], "[00:00.00]existing user lyric");
     EXPECT_FALSE(fs.files.count("/m/Song.lrc"));
 }
+
+// --- forceSave tests ---
+
+TEST(LyricStore, ForceSaveWritesNewFile) {
+    FakeFs fs;
+    LyricStore store(fs);
+
+    TrackMeta track;
+    track.path = "/m/Song.mp3";
+
+    LyricData data;
+    data.sourceText = "[00:01.00]hello";
+
+    EXPECT_TRUE(store.forceSave(track, data));
+    EXPECT_EQ(fs.files["/m/Song.lrc"], "[00:01.00]hello");
+}
+
+TEST(LyricStore, ForceSaveOverwritesExisting) {
+    FakeFs fs;
+    fs.files["/m/Song.lrc"] = "[00:00.00]old content";
+    LyricStore store(fs);
+
+    TrackMeta track;
+    track.path = "/m/Song.mp3";
+
+    LyricData data;
+    data.sourceText = "[00:02.00]new content";
+
+    EXPECT_TRUE(store.forceSave(track, data));
+    EXPECT_EQ(fs.files["/m/Song.lrc"], "[00:02.00]new content");
+}
+
+TEST(LyricStore, ForceSaveEmptySourceTextReturnsFalse) {
+    FakeFs fs;
+    LyricStore store(fs);
+
+    TrackMeta track;
+    track.path = "/m/Song.mp3";
+
+    LyricData data;
+    data.sourceText = "";
+
+    EXPECT_FALSE(store.forceSave(track, data));
+    EXPECT_FALSE(fs.files.count("/m/Song.lrc"));
+}
+
+TEST(LyricStore, ForceSaveWriteFailurePropagates) {
+    FailingFs fs;
+    LyricStore store(fs);
+
+    TrackMeta track;
+    track.path = "/m/Song.mp3";
+
+    LyricData data;
+    data.sourceText = "[00:01.00]hi";
+
+    EXPECT_FALSE(store.forceSave(track, data));
+}
