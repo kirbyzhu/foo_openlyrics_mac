@@ -52,6 +52,8 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     # 落盘接线用它替 SearchPipeline 之外的补充在线段（不进 SearchPipeline 本身，
     # 见 LyricPanelController.mm 顶部注释）。
     extensions/foo_openlyrics_mac/platform/HttpAdapter.mm
+    # Plan 4 Task 4：CryptoPort 的 CommonCrypto/Security.framework 实现。
+    extensions/foo_openlyrics_mac/platform/CryptoAdapter.mm
   )
   set_target_properties(foo_openlyrics PROPERTIES
     PREFIX ""
@@ -66,6 +68,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/ui/LyricView.mm
     extensions/foo_openlyrics_mac/ui/LyricPanelController.mm
     extensions/foo_openlyrics_mac/platform/HttpAdapter.mm
+    extensions/foo_openlyrics_mac/platform/CryptoAdapter.mm
     PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
   )
   target_include_directories(foo_openlyrics PRIVATE
@@ -76,7 +79,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     # foobar2000-mac-helpers.h（FB2K_OBJC_CLASS 宏），fb2k_sdk 未把该目录设为 PUBLIC include 根
     ${CMAKE_SOURCE_DIR}/SDK-2025-03-07/foobar2000/helpers-mac
   )
-  target_link_libraries(foo_openlyrics PRIVATE fb2k_sdk openlyrics_core)
+  target_link_libraries(foo_openlyrics PRIVATE fb2k_sdk openlyrics_core "-framework Security")
 
   set(FOO_OPENLYRICS_BUNDLE "${CMAKE_CURRENT_BINARY_DIR}/foo_openlyrics.component")
   configure_file(
