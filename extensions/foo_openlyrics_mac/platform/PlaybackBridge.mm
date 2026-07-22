@@ -74,6 +74,11 @@ int64_t SecondsToMs(double seconds) {
     int64_t _positionMs;
     BOOL _hasTrack;
     NSHashTable<id<PlaybackHubObserving>> *_observers;
+    // _observersLock：保护 _observers 表的增删/遍历。play_callback 系列回调始终在主线程
+    // 触发 addObserver:/removeObserver:/notifyObservers，但 ARC 下面板的 -dealloc 可能
+    // 在宿主释放最后一个强引用的任意线程上执行（不保证是主线程），届时也会调用
+    // removeObserver:，因此这里不能再假定"全程主线程"，需要显式加锁。
+    NSLock *_observersLock;
 }
 
 + (instancetype)sharedHub {
@@ -91,9 +96,15 @@ int64_t SecondsToMs(double seconds) {
         _positionMs = 0;
         _hasTrack = NO;
         _observers = [NSHashTable weakObjectsHashTable];
+        _observersLock = [[NSLock alloc] init];
     }
     return self;
 }
+
+// currentTrack/positionMs/hasTrack 及其写入方（handleNewTrack:/handlePositionMs:/handleStop）
+// 未加锁：写入方只在 play_callback 的主线程回调里触发，读取方（refreshDisplay 由
+// viewWillAppear/playbackHubDidChange/主线程 NSTimer 触发）同样全程在主线程，
+// 二者不跨线程交叉，不属于本次要修的观察者表竞态，故不额外加锁。
 
 - (openlyrics::TrackMeta)currentTrack {
     return _track;
@@ -108,17 +119,30 @@ int64_t SecondsToMs(double seconds) {
 }
 
 - (void)addObserver:(id<PlaybackHubObserving>)observer {
+    [_observersLock lock];
     [_observers addObject:observer];
+    [_observersLock unlock];
 }
 
 - (void)removeObserver:(id<PlaybackHubObserving>)observer {
+    // 面板 -dealloc 可能在非主线程调用到这里（见 _observersLock 的注释），
+    // 加锁后即可安全地与 notifyObservers/addObserver 并发执行。
+    [_observersLock lock];
     [_observers removeObject:observer];
+    [_observersLock unlock];
 }
 
 - (void)notifyObservers {
-    // play_callback 全程在主线程触发（SDK/play_callback.h 顶部注释），这里无需额外派发。
-    // allObjects 先取快照，防止观察者在回调里同步增删注册表导致遍历期间被修改。
-    for (id<PlaybackHubObserving> observer in [_observers allObjects]) {
+    // play_callback 系列回调本身全程在主线程触发（SDK/play_callback.h 顶部注释），
+    // 但 removeObserver: 可能来自任意线程的 -dealloc，所以这里仍需加锁保护 _observers。
+    // 在锁内取 allObjects 快照，随后立即解锁，再在锁外逐个调用观察者回调——
+    // 避免持锁期间调用外部代码：如果某个观察者的回调又同步调用回 addObserver:/
+    // removeObserver:（重入），持锁调用就会自死锁；锁外调用则完全规避这个问题。
+    [_observersLock lock];
+    NSArray<id<PlaybackHubObserving>> *snapshot = [_observers allObjects];
+    [_observersLock unlock];
+
+    for (id<PlaybackHubObserving> observer in snapshot) {
         [observer playbackHubDidChange];
     }
 }

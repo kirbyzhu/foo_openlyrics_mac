@@ -71,6 +71,15 @@ static NSString *const kPlaceholderText = @"未在播放";
 }
 
 - (void)dealloc {
+    // ARC 下 -dealloc 在释放最后一个强引用的线程上执行，不保证是主线程（宿主可能
+    // 在非主线程释放被包装的 NSViewController）。这里不派发 dispatch_async(main)
+    // 去做收尾——那会在 block 里重新持有 self，属于在 dealloc 里复活对象，是未定义行为。
+    // 两处调用因此都设计为可在任意线程安全调用：
+    //   1. removeObserver: 内部用 NSLock 保护 _observers 表，可放心跨线程调用；
+    //      真正的竞态点（PlaybackHub 观察者表）已在 PlaybackBridge.mm 里修复。
+    //   2. NSTimer -invalidate 本身线程安全，但这里只是兜底——正常路径下
+    //      viewWillDisappear 已经在主线程 invalidate 并置 nil，走到这里
+    //      多半是 self.positionTimer 已为 nil（no-op）。
     [self.positionTimer invalidate];
     [[PlaybackHub sharedHub] removeObserver:self];
 }
