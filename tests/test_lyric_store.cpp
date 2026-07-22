@@ -126,3 +126,40 @@ TEST(LyricStore, SaveWriteFileFailurePropagates) {
 
     EXPECT_FALSE(result);
 }
+
+TEST(LyricStore, DoesNotOverwriteExistingLrc) {
+    FakeFs fs;
+    fs.files["/m/Song.lrc"] = "[00:00.00]existing user lyric";
+    LyricStore store(fs);
+
+    TrackMeta track;
+    track.path = "/m/Song.mp3";
+
+    LyricData data;
+    data.sourceText = "[00:01.00]fetched online";
+
+    bool result = store.save(track, data);
+
+    EXPECT_FALSE(result);
+    ASSERT_TRUE(fs.files.count("/m/Song.lrc"));
+    EXPECT_EQ(fs.files["/m/Song.lrc"], "[00:00.00]existing user lyric");
+}
+
+TEST(LyricStore, ExistingCaseInsensitiveAlsoBlocks) {
+    FakeFs fs;
+    fs.files["/m/Song.LRC"] = "[00:00.00]existing user lyric";
+    LyricStore store(fs);
+
+    TrackMeta track;
+    track.path = "/m/Song.mp3";
+
+    LyricData data;
+    data.sourceText = "[00:01.00]fetched online";
+
+    bool result = store.save(track, data);
+
+    EXPECT_FALSE(result);
+    ASSERT_TRUE(fs.files.count("/m/Song.LRC"));
+    EXPECT_EQ(fs.files["/m/Song.LRC"], "[00:00.00]existing user lyric");
+    EXPECT_FALSE(fs.files.count("/m/Song.lrc"));
+}

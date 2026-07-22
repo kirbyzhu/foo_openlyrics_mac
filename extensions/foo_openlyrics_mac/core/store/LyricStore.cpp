@@ -1,5 +1,8 @@
 #include "store/LyricStore.h"
 
+#include <algorithm>
+#include <cctype>
+
 namespace openlyrics {
 
 namespace {
@@ -14,6 +17,26 @@ std::string stripExtension(const std::string& path) {
     return path;
 }
 
+std::string DirOf(const std::string& path) {
+    const size_t slash = path.find_last_of('/');
+    return (slash == std::string::npos) ? std::string() : path.substr(0, slash + 1);
+}
+
+std::string BasenameOf(const std::string& path) {
+    const size_t slash = path.find_last_of('/');
+    return (slash == std::string::npos) ? path : path.substr(slash + 1);
+}
+
+std::string ToLower(const std::string& s) {
+    std::string out = s;
+    for (char& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return out;
+}
+
+bool CiEquals(const std::string& a, const std::string& b) {
+    return ToLower(a) == ToLower(b);
+}
+
 }  // namespace
 
 LyricStore::LyricStore(FileSystem& fs) : fs_(fs) {}
@@ -23,7 +46,18 @@ bool LyricStore::save(const TrackMeta& track, const LyricData& data) {
         return false;
     }
 
-    std::string target = stripExtension(track.path) + ".lrc";
+    const std::string target = stripExtension(track.path) + ".lrc";
+    const std::string dir = DirOf(target);
+    const std::string targetName = BasenameOf(target);
+
+    // 绝不覆盖已存在的用户文件（即便其为空/损坏）——见头文件注释与
+    // core/ports/FileSystem.h listDirectory 的大小写不敏感匹配约定。
+    for (const std::string& entry : fs_.listDirectory(dir)) {
+        if (CiEquals(entry, targetName)) {
+            return false;
+        }
+    }
+
     return fs_.writeFile(target, data.sourceText);
 }
 
