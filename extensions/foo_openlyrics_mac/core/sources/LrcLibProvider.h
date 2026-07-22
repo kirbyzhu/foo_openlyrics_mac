@@ -1,15 +1,18 @@
 #pragma once
 #include "sources/LyricSource.h"
+#include "model/SearchResult.h"
 #include "ports/HttpClient.h"
+#include <vector>
 
 namespace openlyrics {
 
-// 从 LrcLib（https://lrclib.net）按 artist/title/album/duration 检索歌词。
-// 纯 C++，网络访问经由注入的 HttpClient 端口完成，便于用 FakeHttp 做 TDD。
 class LrcLibProvider : public LyricSource {
 public:
     explicit LrcLibProvider(HttpClient& http);
     bool fetch(const TrackMeta& track, LyricData& out) override;
+
+    bool search(const std::string& query, std::vector<SearchResult>& out);
+    bool fetchById(int id, LyricData& out);
 
 private:
     HttpClient& http_;
