@@ -57,6 +57,8 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/platform/CryptoAdapter.mm
     # Plan 6 Task 1：ConfigAdapter NSUserDefaults 持久化。
     extensions/foo_openlyrics_mac/platform/ConfigAdapter.mm
+    # Plan 6 Task 2：偏好设置页 NSViewController。
+    extensions/foo_openlyrics_mac/ui/PreferencesViewController.mm
   )
   set_target_properties(foo_openlyrics PROPERTIES
     PREFIX ""
@@ -73,6 +75,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/platform/HttpAdapter.mm
     extensions/foo_openlyrics_mac/platform/CryptoAdapter.mm
     extensions/foo_openlyrics_mac/platform/ConfigAdapter.mm
+    extensions/foo_openlyrics_mac/ui/PreferencesViewController.mm
     PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
   )
   target_include_directories(foo_openlyrics PRIVATE
