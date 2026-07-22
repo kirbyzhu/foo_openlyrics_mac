@@ -30,6 +30,8 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
   # 不完全对应），改为手工组装 .component 目录结构，行为更可控。
   add_library(foo_openlyrics MODULE
     extensions/foo_openlyrics_mac/platform/component_entry.mm
+    # Plan 2 Task 3：play_callback 实现 + PlaybackHub 单例 broker，打通 SDK→面板数据流。
+    extensions/foo_openlyrics_mac/platform/PlaybackBridge.mm
     extensions/foo_openlyrics_mac/ui/LyricPanelController.mm
   )
   set_target_properties(foo_openlyrics PROPERTIES
@@ -39,6 +41,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
   )
   set_source_files_properties(
     extensions/foo_openlyrics_mac/platform/component_entry.mm
+    extensions/foo_openlyrics_mac/platform/PlaybackBridge.mm
     extensions/foo_openlyrics_mac/ui/LyricPanelController.mm
     PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
   )
