@@ -21,6 +21,19 @@ public:
         files[p] = d;
         return true;
     }
+    // 同 test_ports.cpp 的 FakeFs：从 seeded 文件 key 反推目录列表。
+    std::vector<std::string> listDirectory(const std::string& dir) override {
+        std::vector<std::string> result;
+        for (const auto& kv : files) {
+            const std::string& path = kv.first;
+            const size_t slash = path.find_last_of('/');
+            const std::string parent = (slash == std::string::npos) ? std::string() : path.substr(0, slash + 1);
+            if (parent == dir) {
+                result.push_back(path.substr(slash + 1));
+            }
+        }
+        return result;
+    }
 };
 
 }  // namespace
@@ -117,4 +130,100 @@ TEST(LocalFileSource, ParentDirDotNotMistakenForExtension) {
     EXPECT_TRUE(out.synced);
     ASSERT_EQ(out.lines.size(), 1u);
     EXPECT_EQ(out.lines[0].text, "ok");
+}
+
+// --- Task 5 follow-up：目录扫描 + 大小写不敏感精确匹配 + 标准化标题模糊匹配 ---
+
+TEST(LocalFileSource, CaseInsensitiveExactExtensionMatch) {
+    FakeFs fs;
+    // 真实文件系统区分大小写：目录里是 "Song.LRC"（大写扩展名），精确按候选名拼接
+    // "Song.lrc" 去 exists() 会落空，必须列目录后做大小写不敏感比较才能命中。
+    fs.files["/music/album/Song.LRC"] = "[00:01.00]cased";
+    LocalFileSource source(fs);
+    TrackMeta track;
+    track.path = "/music/album/Song.mp3";
+    LyricData out;
+    ASSERT_TRUE(source.fetch(track, out));
+    EXPECT_TRUE(out.synced);
+    ASSERT_EQ(out.lines.size(), 1u);
+    EXPECT_EQ(out.lines[0].text, "cased");
+}
+
+TEST(LocalFileSource, FuzzyMatchesAbbreviatedArtistFullTitleFile) {
+    // 真实证据用例：ID3 title="i still carry on"，artist="MLTR"（缩写），
+    // 但歌词文件名是 "Michael Learns To Rock - I Still Carry On.lrc"（全名+大小写不同），
+    // 音轨 basename、<title>、<artist> - <title> 三种精确候选都不命中，只能靠模糊匹配
+    // （标准化后标题子串包含）兜底。
+    FakeFs fs;
+    fs.files["/m/MLTR/Michael Learns To Rock - I Still Carry On.lrc"] = "[00:03.00]fuzzy hit";
+    LocalFileSource source(fs);
+    TrackMeta track;
+    track.title = "i still carry on";
+    track.artist = "MLTR";
+    track.path = "/m/MLTR/MLTR- i still carry on.mp3";
+    LyricData out;
+    ASSERT_TRUE(source.fetch(track, out));
+    EXPECT_TRUE(out.synced);
+    ASSERT_EQ(out.lines.size(), 1u);
+    EXPECT_EQ(out.lines[0].text, "fuzzy hit");
+}
+
+TEST(LocalFileSource, FuzzyAmbiguityPrefersEntryContainingArtist) {
+    // 两个候选都在标准化后包含标题，其中一个还包含艺术家，排序规则 (a) 优先选中它。
+    FakeFs fs;
+    fs.files["/m/x/Alan Walker - Faded.lrc"] = "[00:01.00]artist-match";
+    fs.files["/m/x/DJ Faded Cover Mix.lrc"] = "[00:01.00]no-artist";
+    LocalFileSource source(fs);
+    TrackMeta track;
+    track.title = "Faded";
+    track.artist = "Alan Walker";
+    track.path = "/m/x/track.mp3";
+    LyricData out;
+    ASSERT_TRUE(source.fetch(track, out));
+    ASSERT_EQ(out.lines.size(), 1u);
+    EXPECT_EQ(out.lines[0].text, "artist-match");
+}
+
+TEST(LocalFileSource, FuzzyTieBreakIsDeterministicWithoutArtistMatch) {
+    // 两个候选都不含艺术家，标准化长度相同，靠 (d) 字典序最小决出胜负。
+    FakeFs fs;
+    fs.files["/m/y/A Song.lrc"] = "[00:01.00]first";
+    fs.files["/m/y/B Song.lrc"] = "[00:01.00]second";
+    LocalFileSource source(fs);
+    TrackMeta track;
+    track.title = "Song";
+    track.artist = "Zzz";  // 两个候选文件名都不含 "zzz"
+    track.path = "/m/y/track.mp3";
+    LyricData out;
+    ASSERT_TRUE(source.fetch(track, out));
+    ASSERT_EQ(out.lines.size(), 1u);
+    EXPECT_EQ(out.lines[0].text, "first");  // normalize("A Song.lrc") < normalize("B Song.lrc")
+}
+
+TEST(LocalFileSource, FuzzyTieBreakPrefersLrcOverTxtThenShorterName) {
+    FakeFs fs;
+    fs.files["/m/z/Faded Extended Remix.txt"] = "extended remix";
+    fs.files["/m/z/Faded.lrc"] = "[00:01.00]short-lrc";
+    LocalFileSource source(fs);
+    TrackMeta track;
+    track.title = "Faded";
+    track.artist = "Nobody";
+    track.path = "/m/z/track.mp3";
+    LyricData out;
+    ASSERT_TRUE(source.fetch(track, out));
+    EXPECT_TRUE(out.synced);
+    ASSERT_EQ(out.lines.size(), 1u);
+    EXPECT_EQ(out.lines[0].text, "short-lrc");  // .lrc 优先于 .txt，规则 (b)
+}
+
+TEST(LocalFileSource, NoFuzzyMatchWhenTitleNotContainedAnywhere) {
+    FakeFs fs;
+    fs.files["/m/w/Completely Unrelated Name.lrc"] = "[00:01.00]nope";
+    LocalFileSource source(fs);
+    TrackMeta track;
+    track.title = "Faded";
+    track.artist = "Alan Walker";
+    track.path = "/m/w/track.mp3";
+    LyricData out;
+    EXPECT_FALSE(source.fetch(track, out));
 }

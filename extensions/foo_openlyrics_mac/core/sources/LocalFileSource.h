@@ -16,6 +16,10 @@ public:
     // 最后一个 '.'；若该子串无 '.'，视为无扩展名，原样返回整条路径。
     static std::string stripExtension(const std::string& path);
 
+    // 标准化：转小写 + 丢弃所有非字母数字字符（空格、标点、连字符……），
+    // 供模糊匹配时比较"标题子串是否包含在文件名里"用。
+    static std::string normalize(const std::string& s);
+
 private:
     FileSystem& fs_;
 };

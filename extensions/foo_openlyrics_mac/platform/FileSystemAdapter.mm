@@ -7,8 +7,10 @@
 #import "FileSystemAdapter.h"
 #import "stdafx.h"
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <system_error>
 
 namespace openlyrics {
 
@@ -38,6 +40,26 @@ bool FileSystemAdapter::writeFile(const std::string& path, const std::string& da
 
     f.write(data.data(), static_cast<std::streamsize>(data.size()));
     return f.good();
+}
+
+// Task 5 follow-up：LocalFileSource 目录扫描 + 模糊匹配依赖的端口实现。用带 error_code
+// 重载的 std::filesystem::directory_iterator——目录不存在/不可读时 ec 被置位，
+// directory_iterator(dir, ec) 此时退化为 end 迭代器，range-for 天然是空循环，
+// 不抛异常，符合"目录缺失返回空 vector"的约定。
+std::vector<std::string> FileSystemAdapter::listDirectory(const std::string& dir) {
+    std::vector<std::string> result;
+    if (dir.empty()) return result;
+
+    std::error_code ec;
+    std::filesystem::directory_iterator it(dir, ec);
+    if (ec) return result;
+
+    const std::filesystem::directory_iterator end;
+    for (; it != end; it.increment(ec)) {
+        if (ec) break;
+        result.push_back(it->path().filename().string());
+    }
+    return result;
 }
 
 }  // namespace openlyrics
