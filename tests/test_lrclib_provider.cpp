@@ -125,3 +125,20 @@ TEST(LrcLibProvider, UrlEncodingAndParams) {
               "&track_name=%E7%AA%81%E7%84%B6%E7%9A%84%E8%87%AA%E6%88%91"
               "&duration=213");
 }
+
+TEST(LrcLibProvider, OmitsDurationWhenLengthUnknown) {
+    FakeHttp http;
+    http.response.status = 200;
+    http.response.body = R"({"instrumental":false,"syncedLyrics":"","plainLyrics":""})";
+    LrcLibProvider provider(http);
+    TrackMeta track;
+    track.artist = "A";
+    track.title = "B";
+    track.album = "";
+    track.lengthMs = 0;
+    LyricData out;
+
+    provider.fetch(track, out);
+    EXPECT_EQ(http.lastUrl.find("duration"), std::string::npos);
+    EXPECT_EQ(http.lastUrl.find("album_name"), std::string::npos);
+}
