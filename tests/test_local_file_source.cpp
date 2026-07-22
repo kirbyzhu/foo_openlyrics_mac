@@ -91,3 +91,30 @@ TEST(LocalFileSource, EmptyFileContentTreatedAsMiss) {
     LyricData out;
     EXPECT_FALSE(source.fetch(track, out));
 }
+
+TEST(LocalFileSource, PrefersLrcOverTxtWhenBothExist) {
+    FakeFs fs;
+    fs.files["/music/album/01 - track.lrc"] = "[00:01.00]from-lrc";
+    fs.files["/music/album/01 - track.txt"] = "from-txt";
+    LocalFileSource source(fs);
+    TrackMeta track;
+    track.path = "/music/album/01 - track.mp3";
+    LyricData out;
+    ASSERT_TRUE(source.fetch(track, out));
+    EXPECT_TRUE(out.synced);
+    ASSERT_EQ(out.lines.size(), 1u);
+    EXPECT_EQ(out.lines[0].text, "from-lrc");
+}
+
+TEST(LocalFileSource, ParentDirDotNotMistakenForExtension) {
+    FakeFs fs;
+    fs.files["/music/R.E.M/01 - Song.lrc"] = "[00:02.00]ok";
+    LocalFileSource source(fs);
+    TrackMeta track;
+    track.path = "/music/R.E.M/01 - Song.mp3";
+    LyricData out;
+    ASSERT_TRUE(source.fetch(track, out));
+    EXPECT_TRUE(out.synced);
+    ASSERT_EQ(out.lines.size(), 1u);
+    EXPECT_EQ(out.lines[0].text, "ok");
+}
