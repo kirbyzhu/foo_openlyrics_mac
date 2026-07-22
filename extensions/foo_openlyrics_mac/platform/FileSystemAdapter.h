@@ -12,7 +12,6 @@ namespace openlyrics {
 
 class FileSystemAdapter : public FileSystem {
 public:
-    bool exists(const std::string& path) override;
     bool readFile(const std::string& path, std::string& out) override;
     bool writeFile(const std::string& path, const std::string& data) override;
     std::vector<std::string> listDirectory(const std::string& dir) override;

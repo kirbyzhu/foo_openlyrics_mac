@@ -110,6 +110,12 @@ static const NSTimeInterval kSyncTickInterval = 0.06;
 
 - (void)viewWillDisappear {
     [super viewWillDisappear];
+    // 面板不可见时同步停止后台工作：注销 PlaybackHub 观察者（避免曲目切换仍触发
+    // handleTrackChanged 派发后台检索）并让 syncTimer 停止轮询播放位置。
+    // PlaybackHub 用 NSHashTable weakObjectsHashTable 存观察者，addObject:/removeObject:
+    // 天然去重，viewWillAppear 里再次 addObserver:self 不会产生重复回调；
+    // hub 对观察者只持弱引用，这里不构成 self 与 hub 之间的循环引用。
+    [[PlaybackHub sharedHub] removeObserver:self];
     [self.syncTimer invalidate];
     self.syncTimer = nil;
 }

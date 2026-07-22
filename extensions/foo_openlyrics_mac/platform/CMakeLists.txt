@@ -6,15 +6,15 @@
 set(FB2K_SDK_ROOT ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
 
 # --- pfc ---
-file(GLOB FB2K_PFC_CPP ${FB2K_SDK_ROOT}/pfc/*.cpp)
-file(GLOB FB2K_PFC_OBJC ${FB2K_SDK_ROOT}/pfc/*.mm ${FB2K_SDK_ROOT}/pfc/*.m)
+file(GLOB FB2K_PFC_CPP CONFIGURE_DEPENDS ${FB2K_SDK_ROOT}/pfc/*.cpp)
+file(GLOB FB2K_PFC_OBJC CONFIGURE_DEPENDS ${FB2K_SDK_ROOT}/pfc/*.mm ${FB2K_SDK_ROOT}/pfc/*.m)
 
 # --- foobar2000/SDK ---
-file(GLOB FB2K_SDK_CPP ${FB2K_SDK_ROOT}/foobar2000/SDK/*.cpp)
-file(GLOB FB2K_SDK_OBJC ${FB2K_SDK_ROOT}/foobar2000/SDK/*.mm ${FB2K_SDK_ROOT}/foobar2000/SDK/*.m)
+file(GLOB FB2K_SDK_CPP CONFIGURE_DEPENDS ${FB2K_SDK_ROOT}/foobar2000/SDK/*.cpp)
+file(GLOB FB2K_SDK_OBJC CONFIGURE_DEPENDS ${FB2K_SDK_ROOT}/foobar2000/SDK/*.mm ${FB2K_SDK_ROOT}/foobar2000/SDK/*.m)
 
 # --- foobar2000/helpers ---
-file(GLOB FB2K_HELPERS_CPP ${FB2K_SDK_ROOT}/foobar2000/helpers/*.cpp)
+file(GLOB FB2K_HELPERS_CPP CONFIGURE_DEPENDS ${FB2K_SDK_ROOT}/foobar2000/helpers/*.cpp)
 
 # 排除：不在 foobar2000_SDK_helpers.xcodeproj 的 mac "in Sources" 名单内的 Windows/ATL/WTL
 # 专属源（对话框、Dark Mode、原地编辑等 Win32 GUI 助手，非 _WIN32 守卫，mac 下无对应实现）。
@@ -31,7 +31,7 @@ list(REMOVE_ITEM FB2K_HELPERS_CPP
 )
 
 # --- foobar2000/helpers-mac（无独立 xcodeproj，.mm/.m 全量编入）---
-file(GLOB FB2K_HELPERS_MAC_OBJC ${FB2K_SDK_ROOT}/foobar2000/helpers-mac/*.mm ${FB2K_SDK_ROOT}/foobar2000/helpers-mac/*.m)
+file(GLOB FB2K_HELPERS_MAC_OBJC CONFIGURE_DEPENDS ${FB2K_SDK_ROOT}/foobar2000/helpers-mac/*.mm ${FB2K_SDK_ROOT}/foobar2000/helpers-mac/*.m)
 
 # --- foobar2000_component_client（必编，供组件导出表使用）---
 set(FB2K_COMPONENT_CLIENT_CPP ${FB2K_SDK_ROOT}/foobar2000/foobar2000_component_client/component_client.cpp)
