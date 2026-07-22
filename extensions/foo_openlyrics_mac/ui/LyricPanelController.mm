@@ -166,6 +166,12 @@ static const NSTimeInterval kSyncTickInterval = 0.06;
         const bool found = pipeline.resolve(meta, resolved);
         if (!found) resolved = openlyrics::LyricData{};
 
+        // Task 5 补丁：Bug #1（get_path() 未转原生路径）修好后，留一行诊断日志方便用户在
+        // 控制台面板核对——曲目切换时到底解析出了哪条原生路径、有没有摸到歌词文件。
+        // console:: 命名空间函数全线程安全（console.h:4），可以直接在后台队列调用。
+        FB2K_console_print("foo_openlyrics: native path=", meta.path.c_str(),
+                            found ? "  lyric=matched" : "  lyric=not-found");
+
         dispatch_async(dispatch_get_main_queue(), ^{
             __typeof__(self) strongSelf = weakSelf;
             if (strongSelf == nil) return;

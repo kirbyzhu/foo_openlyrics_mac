@@ -20,11 +20,26 @@ std::string TitleFromPath(const std::string &path) {
     return name;
 }
 
+// get_path() 返回的是 fb2k 带 scheme 的规范路径（如 "file:///Users/..."），不是
+// std::ifstream 能直接吃的原生 POSIX 路径——这是 Task 5 本地 .lrc 歌词读不到的根因之一
+// （FileSystemAdapter.mm 内部用 std::ifstream 打开这个字符串会直接失败）。用 SDK 提供的
+// filesystem::g_get_native_path 转换（SDK/filesystem.h:97-98）；转换失败（远程/非文件源）
+// 时退回原始路径，保证 meta.path 始终非空。转换后的原生路径同时供标题兜底
+// （TitleFromPath）与下游 LocalFileSource 使用。
+std::string ToNativePath(const std::string &rawPath) {
+    if (rawPath.empty()) return rawPath;
+    pfc::string8 native;
+    if (filesystem::g_get_native_path(rawPath.c_str(), native)) {
+        return std::string(native.c_str());
+    }
+    return rawPath;
+}
+
 TrackMeta MakeTrackMeta(const metadb_handle_ptr &track) {
     TrackMeta meta;
     if (track.is_empty()) return meta;
 
-    meta.path = track->get_path();
+    meta.path = ToNativePath(track->get_path());
 
     file_info_impl info;
     if (track->get_info(info)) {
