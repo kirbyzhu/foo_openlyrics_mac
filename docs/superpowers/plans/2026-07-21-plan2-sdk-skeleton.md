@@ -147,15 +147,59 @@ git commit -m "实现最小可加载 ui_element_mac 面板并打包安装"
 
 ---
 
-## P1 展示闭环（Task 3-4，待 P0 打通后展开为逐步任务）
+## P1 展示闭环（Task 3-4）
 
-P0（Task 1-2）验证了 SDK 编译、面板加载与打包路径后，再展开以下任务。其具体接口依赖 P0 中确认的 instantiate/线程/位置回调细节，故此处只列目标与判据。
+P0（Task 1-2）已验证 SDK 编译、面板加载、打包安装与文本布局 token（`openlyrics`）解析。以下两任务打通 SDK→核心→面板的数据流并做出真实歌词展示。SDK 调用的确切签名由实现者对照下列已命名头文件确认，不臆造。
 
-**Task 3 PlaybackBridge（play_callback）**
-交付。实现 `play_callback`（`SDK/play_callback.h`）订阅曲目切换/位置/暂停，抽取 `TrackMeta`（artist/title/album/path/length），推给面板 ViewModel。面板改为显示当前曲目标题与实时播放位置（秒）。判据。切歌与播放时面板文字实时更新，证明 SDK→核心的数据接线通。
+已核实的地面真相（供 Task 3-4）：
+- `play_callback`（`SDK/play_callback.h`）全部回调在主线程。关键方法 `on_playback_new_track(metadb_handle_ptr)`、`on_playback_time(double p_time)`（每秒）、`on_playback_stop`、`on_playback_pause(bool)`、`on_playback_seek(double)`。静态注册用 `play_callback_static`（见同头文件下半部），或用 `play_callback_manager::get()->register_callback(...)`。impl 辅助基类 `play_callback_impl_base`。
+- 精细位置（平滑滚动需 ~60ms）不靠 `on_playback_time`，改在面板层用 NSTimer/CVDisplayLink 轮询 `playback_control::get()->playback_get_position()`（`SDK/playback_control.h` 确认签名）。
+- 曲目元数据从 `metadb_handle_ptr` 取：`playable_location`/`get_path()` 得路径，`get_info` 或 `titleformat` 得 artist/title/album/length（实现者对照 `SDK/metadb_handle.h`、`SDK/titleformat.h` 确认）。
+- 面板实例由宿主创建，可能 0 或多个。需一个单例 broker（`PlaybackHub`）承接 play_callback 事件并转发给活跃面板；面板在出现/销毁时向 broker 注册/注销（弱引用），更新一律回主线程。
 
-**Task 4 展示闭环（TagIOAdapter/FileSystemAdapter + LyricView）**
-交付。用 metadb/file_info 实现计划一的 `TagIO` 端口（读内嵌歌词标签）、用标准库/NSFileManager 实现 `FileSystem` 端口；接 `TagSource`+`LocalFileSource`+`SearchPipeline`(仅本地档)+`SyncEngine`；`LyricView` 做整行高亮 + 定时器驱动平滑滚动。判据。带内嵌或同目录 .lrc 的曲目，面板随播放高亮当前行并平滑居中滚动。
+### Task 3: PlaybackBridge —— 打通 SDK→面板数据流
+
+**Files:**
+- Create: `extensions/foo_openlyrics_mac/platform/PlaybackBridge.h/.mm`（`play_callback` 实现 + `PlaybackHub` 单例 broker）
+- Modify: `extensions/foo_openlyrics_mac/ui/LyricPanelController.mm`（改为显示当前曲目标题 + 实时位置，向 PlaybackHub 注册/注销）
+- Modify: `CMakeLists.txt`（新增源）
+
+**Interfaces:**
+- Consumes: `fb2k_sdk`、Task 2 的面板；计划一 `TrackMeta`（`core/model/TrackMeta.h`）
+- Produces: `PlaybackHub` 单例，提供 `currentTrack()->TrackMeta`、`positionMs()`，以及面板注册接口 `addObserver:/removeObserver:`；`play_callback` 把 `on_playback_new_track` 抽成 `TrackMeta` 存入 hub 并通知观察者。
+
+- [ ] Step 1: 实现 `play_callback`（用 `play_callback_impl_base` 或 `play_callback_static`），订阅 new_track/time/stop/pause/seek。对照 `SDK/play_callback.h` 确认注册方式。
+- [ ] Step 2: `PlaybackHub` 单例：持有当前 `TrackMeta` 与位置；`on_playback_new_track` 里用 titleformat 或 file_info 填 `TrackMeta`（artist/title/album/path/length），主线程通知观察者。
+- [ ] Step 3: 面板 `LyricPanelController` viewWillAppear 向 hub 注册、dealloc 注销；显示 “<title> — <mm:ss>”，用 NSTimer(0.25s) 轮询 `playback_control::get()->playback_get_position()` 刷新位置文字。
+- [ ] Step 4: 构建 + 签名 + 安装（复用 Scripts/install-component.sh）。core_tests 不受影响。
+- [ ] Step 5: 提交（中文动宾）。
+- [ ] Step 6: 人工验证：播放一首歌，面板显示曲目标题并每秒/每 0.25s 刷新播放位置；切歌时标题更新；停止时清空。（subagent 完成构建安装后 DONE_WITH_CONCERNS 交回人验证。）
+
+**判据：** 面板随播放实时显示曲目标题与位置，证明 SDK→核心→面板数据流通。
+
+### Task 4: 展示闭环 —— 适配器 + TagSource/LocalFileSource + LyricView
+
+**Files:**
+- Create: `extensions/foo_openlyrics_mac/platform/TagIOAdapter.mm`（实现计划一 `TagIO` 端口，读内嵌歌词标签）
+- Create: `extensions/foo_openlyrics_mac/platform/FileSystemAdapter.mm`（实现 `FileSystem` 端口）
+- Create: `extensions/foo_openlyrics_mac/core/sources/TagSource.*`、`LocalFileSource.*`、`core/pipeline/SearchPipeline.*`（计划一未建的核心件，纯 C++，可单测）
+- Create: `extensions/foo_openlyrics_mac/ui/LyricView.mm/.h`（整行高亮 + 平滑滚动的 NSView）
+- Modify: 面板改为宿主 LyricView，接 SyncEngine
+- Modify: `CMakeLists.txt`、`tests/`（TagSource/LocalFileSource/SearchPipeline 单测）
+
+**Interfaces:**
+- Consumes: 计划一 `LrcParser`、`SyncEngine`、端口 `TagIO`/`FileSystem`；Task 3 `PlaybackHub`
+- Produces: `TagSource`/`LocalFileSource`（实现 `LyricSource`）、`SearchPipeline`（本地档降级）；`LyricView` 消费 `SyncResult` 渲染。
+
+- [ ] Step 1: 纯 C++ 侧 TDD（可单测）：`TagSource`（注入 TagIO 读内嵌）、`LocalFileSource`（注入 FileSystem 按 basename 找同目录 .lrc/.txt）、`SearchPipeline`（按序 Tag→本地，命中短路），用假端口写测试。
+- [ ] Step 2: 平台适配器：`TagIOAdapter` 用 metadb/file_info 读常见歌词标签（LYRICS/UNSYNCEDLYRICS，对照 `SDK/file_info.h`）；`FileSystemAdapter` 用标准库/NSFileManager。
+- [ ] Step 3: `LyricView`（NSView）：给定 `LyricData` 与当前 `SyncResult`，整行高亮当前行、平滑居中滚动（NSTimer ~60ms 插值）；字体/颜色先硬编码默认。
+- [ ] Step 4: 面板接线：曲目切换（PlaybackHub 通知）→ 后台 SearchPipeline 取歌词 → 主线程交 LyricView；面板 timer 轮询位置 → SyncEngine.locate → LyricView 更新。
+- [ ] Step 5: 构建 + 签名 + 安装；纯 C++ 单测全绿。
+- [ ] Step 6: 提交（中文动宾）。
+- [ ] Step 7: 人工验证：播放带内嵌歌词或同目录 .lrc 的曲目，面板随播放高亮当前行并平滑居中滚动；无歌词时显示占位。
+
+**判据：** 带内嵌/本地歌词的曲目在面板内同步高亮滚动，计划二展示闭环完成。
 
 ## 风险
 
