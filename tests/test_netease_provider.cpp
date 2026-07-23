@@ -28,7 +28,8 @@ public:
         ++postCount;
         lastUrl = url;
         lastBody = body;
-        if (url.find("/search/") != std::string::npos) return searchResp;
+        if (url.find("cloudsearch") != std::string::npos ||
+            url.find("/search") != std::string::npos) return searchResp;
         if (url.find("/lyric/") != std::string::npos || url.find("/song/") != std::string::npos) return lyricResp;
         return {};
     }
@@ -271,7 +272,7 @@ TEST(NetEaseProvider, EapiEncryptionFlow) {
     EXPECT_EQ(crypto.ecbCalls[0].key, std::string("e82ckenh8dichen8", 16));
 }
 
-// EAPI 搜索 JSON 包含 keyword/scene/header 字段。
+// EAPI 搜索 JSON 包含 cloudsearch 的 s/type 字段。
 TEST(NetEaseProvider, EapiSearchParamsFormat) {
     FakeHttp http;
     FakeCrypto crypto;
@@ -291,9 +292,8 @@ TEST(NetEaseProvider, EapiSearchParamsFormat) {
     provider.fetch(track, out);
 
     ASSERT_FALSE(crypto.ecbCalls.empty());
-    EXPECT_NE(crypto.ecbCalls[0].plain.find("\"keyword\""), std::string::npos);
-    EXPECT_NE(crypto.ecbCalls[0].plain.find("\"scene\""), std::string::npos);
-    EXPECT_NE(crypto.ecbCalls[0].plain.find("\"header\""), std::string::npos);
+    EXPECT_NE(crypto.ecbCalls[0].plain.find("\"s\""), std::string::npos);
+    EXPECT_NE(crypto.ecbCalls[0].plain.find("\"type\""), std::string::npos);
 }
 
 // --- search() 测试 ---

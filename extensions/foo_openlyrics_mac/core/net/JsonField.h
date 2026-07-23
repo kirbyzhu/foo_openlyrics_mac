@@ -14,4 +14,8 @@ bool jsonGetObject(const std::string& json, const std::string& key, std::string&
 // 从 json[pos] 开始提取完整 JSON 对象（正确处理字符串内花括号）。
 // pos 更新为对象 } 之后的位置，out 接收原始文本（不含外层）。成功返回 true。
 bool jsonExtractObject(const std::string& json, size_t& pos, std::string& out);
+// 转义字符串使其可安全嵌入 JSON 字符串字面量（不含外层引号）。
+// 处理 " \ 及控制字符（\b\f\n\r\t 及 \u00XX），UTF-8 多字节原样透传。
+// 用于拼接请求体，避免歌名/艺人含引号导致 JSON 畸形。
+std::string jsonEscapeString(const std::string& s);
 }

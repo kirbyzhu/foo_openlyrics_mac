@@ -11,7 +11,7 @@ namespace openlyrics {
 namespace {
 
 const char* const kEapiHost = "https://interface.music.163.com";
-const char* const kSearchPath = "/eapi/search/song/list/page";
+const char* const kSearchPath = "/eapi/cloudsearch/pc";
 const char* const kLyricPath = "/eapi/song/lyric/v1";
 const char* const kEapiKey = "e82ckenh8dichen8";  // 16 字节 AES-ECB key
 
@@ -162,10 +162,10 @@ bool NetEaseProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
     if (track.title.empty()) return false;
 
     auto tryQuery = [&](const std::string& query) {
+        // cloudsearch/pc 返回明文 {"result":{"songs":[...]}}，不带 e_r 避免加密响应
         std::string searchJson =
-            "{\"keyword\":\"" + query +
-            "\",\"scene\":\"NORMAL\",\"needCorrect\":\"true\","
-            "\"limit\":5,\"offset\":0,\"e_r\":true,\"header\":{}}";
+            "{\"s\":\"" + jsonEscapeString(query) +
+            "\",\"type\":1,\"limit\":5,\"offset\":0,\"total\":true}";
         std::string searchResp = eapiPost(kSearchPath, searchJson);
         if (searchResp.empty()) return false;
 
@@ -198,9 +198,8 @@ bool NetEaseProvider::fetchById(const std::string& id, LyricData& out) {
     if (id.empty()) return false;
 
     std::string lyricJson =
-        "{\"id\":\"" + id +
-        "\",\"lv\":\"-1\",\"tv\":\"-1\",\"rv\":\"-1\",\"yv\":\"-1\","
-        "\"e_r\":true,\"header\":{}}";
+        "{\"id\":\"" + jsonEscapeString(id) +
+        "\",\"lv\":\"-1\",\"tv\":\"-1\",\"rv\":\"-1\",\"yv\":\"-1\"}";
     std::string lyricResp = eapiPost(kLyricPath, lyricJson);
     if (lyricResp.empty()) return false;
 

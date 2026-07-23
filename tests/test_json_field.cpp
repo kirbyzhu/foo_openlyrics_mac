@@ -186,3 +186,27 @@ TEST(JsonFieldTest, UnknownEscapeKeepsLiteralChar) {
     EXPECT_TRUE(jsonGetString(R"({"a":"weird \x escape"})", "a", out));
     EXPECT_EQ("weird x escape", out);
 }
+
+TEST(JsonFieldTest, EscapeQuotesAndBackslash) {
+    EXPECT_EQ(jsonEscapeString(R"(say "hi")"), R"(say \"hi\")");
+    EXPECT_EQ(jsonEscapeString(R"(a\b)"), R"(a\\b)");
+}
+
+TEST(JsonFieldTest, EscapeControlChars) {
+    EXPECT_EQ(jsonEscapeString("a\nb\tc"), "a\\nb\\tc");
+    EXPECT_EQ(jsonEscapeString(std::string("\x01", 1)), "\\u0001");
+}
+
+TEST(JsonFieldTest, EscapePassesThroughUtf8AndPlainText) {
+    EXPECT_EQ(jsonEscapeString("晴天"), "晴天");
+    EXPECT_EQ(jsonEscapeString("normal text 123"), "normal text 123");
+}
+
+// 转义后嵌入 JSON 字面量应可被 jsonGetString 无损取回。
+TEST(JsonFieldTest, EscapeRoundTrips) {
+    std::string raw = R"(Godzilla "King" \n of monsters)";
+    std::string json = "{\"s\":\"" + jsonEscapeString(raw) + "\"}";
+    std::string out;
+    ASSERT_TRUE(jsonGetString(json, "s", out));
+    EXPECT_EQ(out, raw);
+}
