@@ -36,6 +36,8 @@ static const NSTimeInterval kSaveDebounce = 0.3;
 static const CGFloat kCornerRadius = 14.0;      // 面板圆角半径，贴近 macOS 小部件风格
 static const CGFloat kContentInset = 6.0;       // 歌词视图相对面板的内边距，避开圆角
 static const NSTimeInterval kHoverShowDelay = 1.0;  // 悬停多久后才显现背景，避免鼠标掠过误触发
+static const int64_t kScrollMsPerWheelTick = 100;    // 滚轮每刻度偏移量（毫秒）
+static const NSTimeInterval kScrollCommitDelay = 0.8; // 滚轮停止后多久自动提交偏移
 
 typedef NS_ENUM(NSInteger, DeskMenuTag) {
     DeskMenuTagReSearchLrcLib = 1,
@@ -129,6 +131,9 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 
 // 在面板中央弹出一条瞬时提示（复用 HUD），短暂显示后自动淡出。
 - (void)showMessage:(NSString *)text;
+
+// 当前滚轮累积的偏移量（毫秒），供外部在提交后清零。
+@property(nonatomic, assign) int64_t scrollAccumMs;
 @end
 
 @implementation DeskLyricsContent {
@@ -155,6 +160,9 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     BOOL _hoverBgActive;            // 悬停已满 kHoverShowDelay，允许因悬停显现背景
     BOOL _interacting;              // 拖拽/缩放/偏移微调进行中
     BOOL _bgShown;                  // 背景当前是否可见，去抖动画
+
+    int64_t _scrollAccumMs;         // 滚轮累积偏移量
+    NSTimer *_scrollCommitTimer;    // 滚轮停止后延迟提交
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -477,6 +485,51 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         self->_hudLabel.hidden = YES;
     }];
 }
+
+#pragma mark - 滚轮偏移
+
+- (void)scrollWheel:(NSEvent *)event {
+    // 仅在有歌词且非拖拽/缩放/边缘调整状态下响应滚轮
+    if (_isDragging || _isScrubbing || _isResizing || _isCmdResizing) {
+        [super scrollWheel:event];
+        return;
+    }
+
+    CGFloat dy = event.deltaY;
+    if (fabs(dy) < 0.01) return;
+
+    int64_t deltaMs;
+    if (event.hasPreciseScrollingDeltas) {
+        // 触控板：按像素缩放，每像素 ≈ 10ms
+        deltaMs = static_cast<int64_t>(dy * 10.0);
+    } else {
+        // 传统鼠标滚轮：每刻度 kScrollMsPerWheelTick
+        deltaMs = static_cast<int64_t>(dy * kScrollMsPerWheelTick);
+    }
+
+    _scrollAccumMs += deltaMs;
+
+    // 实时 HUD 反馈，复用 Option+拖拽的显示逻辑
+    [self showOffsetHudWithDelta:_scrollAccumMs];
+
+    // 实时同步到歌词视图
+    if (self.onOffsetDelta) self.onOffsetDelta(_scrollAccumMs);
+
+    // 重置延迟提交计时器
+    [_scrollCommitTimer invalidate];
+    _scrollCommitTimer = [NSTimer scheduledTimerWithTimeInterval:kScrollCommitDelay
+                                                         repeats:NO
+                                                           block:^(NSTimer *timer) {
+        if (self.onOffsetCommit && self->_scrollAccumMs != 0) {
+            self.onOffsetCommit(self->_scrollAccumMs);
+        }
+        self->_scrollAccumMs = 0;
+        [self fadeHud];
+    }];
+}
+
+- (int64_t)scrollAccumMs { return _scrollAccumMs; }
+- (void)setScrollAccumMs:(int64_t)v { _scrollAccumMs = v; }
 
 #pragma mark - 右键菜单
 
