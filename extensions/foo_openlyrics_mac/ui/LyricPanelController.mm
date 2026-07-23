@@ -226,18 +226,20 @@ static const double kOffsetMax = 30.0;
 
     NSTableView *tv = [[NSTableView alloc] initWithFrame:NSZeroRect];
     NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:@"result"];
-    col.title = @""; col.width = 260;
+    col.title = @""; col.width = 340;
     [tv addTableColumn:col];
     tv.headerView = nil; tv.rowHeight = 36;
     tv.dataSource = self; tv.delegate = self;
     tv.target = self; tv.doubleAction = @selector(searchRowDoubleClicked:);
     _searchTableView = tv;
 
-    NSScrollView *popScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 280, 200)];
+    NSScrollView *popScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 360, 200)];
     popScroll.documentView = tv; popScroll.hasVerticalScroller = YES;
+    popScroll.autohidesScrollers = YES;
     NSViewController *popVC = [[NSViewController alloc] init];
     popVC.view = popScroll;
     _searchPopover.contentViewController = popVC;
+    _searchPopover.contentSize = NSMakeSize(360, 200);
 
     self.searchField = search;
     self.statusLabel = status;
@@ -332,17 +334,22 @@ static const double kOffsetMax = 30.0;
         openlyrics::Matcher matcher;
         openlyrics::SearchCoordinator coordinator(onlineSources, matcher);
 
-        // 手动搜索需要 TrackMeta，将查询字符串填入 title
+        // 手动搜索需要 TrackMeta：将查询字符串同时填入 title 和 artist，
+        // 使 Matcher 能对候选的 trackName 和 artistName 都做匹配评分。
         openlyrics::TrackMeta track;
         track.title = query.UTF8String;
+        track.artist = query.UTF8String;
 
         auto groups = coordinator.searchAll(track);
+
+        static const int kMinScore = 30;  // 手动搜索最低相关度阈值
 
         // 转为 NSArray 供 UI 展示：每个元素是一个 section 字典
         NSMutableArray<NSDictionary *> *sections = [NSMutableArray array];
         for (const auto& g : groups) {
             NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
             for (const auto& r : g.items) {
+                if (r.score < kMinScore) continue;  // 过滤低相关度候选
                 [items addObject:@{
                     @"id": [NSString stringWithUTF8String:r.id.c_str()],
                     @"trackName": [NSString stringWithUTF8String:r.trackName.c_str()],
@@ -369,15 +376,15 @@ static const double kOffsetMax = 30.0;
             strongSelf.searchField.placeholderString = @"搜索歌词…";
             strongSelf.searchSections = sections;
             [strongSelf.searchTableView reloadData];
-            // 计算总行数
+            // 计算总行数；TableView 为扁平无 header 模式，仅用 row 高度计算
             NSInteger totalRows = 0;
             for (NSDictionary *sec in sections) {
                 totalRows += [sec[@"items"] count];
             }
             if (totalRows > 0) {
                 NSViewController *vc = strongSelf.searchPopover.contentViewController;
-                vc.view.frame = NSMakeRect(0, 0, 320,
-                    MIN(totalRows * strongSelf.searchTableView.rowHeight + sections.count * 24 + 8, 300));
+                CGFloat popoverHeight = MIN(totalRows * strongSelf.searchTableView.rowHeight + 4, 300.0);
+                vc.view.frame = NSMakeRect(0, 0, 360, popoverHeight);
                 [strongSelf.searchPopover showRelativeToRect:strongSelf.searchField.bounds
                                                       ofView:strongSelf.searchField
                                                preferredEdge:NSRectEdgeMaxY];
