@@ -1113,6 +1113,11 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         openlyrics::Matcher matcher;
         openlyrics::SearchCoordinator coordinator(&localPipeline, onlineSources, matcher);
 
+        FB2K_console_print("foo_openlyrics desk: resolve artist=", meta.artist.c_str(),
+                           " title=", meta.title.c_str(),
+                           " album=", meta.album.c_str(),
+                           " lenMs=", std::to_string(meta.lengthMs).c_str());
+
         openlyrics::LyricData resolved;
         bool found = coordinator.resolve(meta, resolved);
         std::string lyricPath;
