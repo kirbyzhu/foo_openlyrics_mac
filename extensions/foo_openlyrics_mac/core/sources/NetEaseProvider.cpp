@@ -42,26 +42,26 @@ std::string reverse(const std::string& s) {
     return std::string(s.rbegin(), s.rend());
 }
 
-// 在 JSON 中定位 "songs" 数组内第一个对象的 "id" 整数值。
-// 用法：解析 NetEase 搜索响应的 result.songs[0].id。
-bool extractFirstSongId(const std::string& json, int64_t& id) {
-    // 找到 "songs" 键
-    size_t pos = json.find("\"songs\"");
-    if (pos == std::string::npos) return false;
-    pos += 7;  // 跳过 "songs"
-    // 跳过空白与冒号
+// 从 JSON 数组中提取多条歌曲对象。pos 初始指向 '['，结束时指向 ']' 之后。
+bool extractSongsArray(const std::string& json, size_t& pos,
+                       std::vector<std::string>& out, int limit) {
+    // pos 应指向 '['
     while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' ||
-                                  json[pos] == '\n' || json[pos] == '\r' ||
-                                  json[pos] == ':'))
+                                  json[pos] == '\n' || json[pos] == '\r' || json[pos] == ':'))
         ++pos;
     if (pos >= json.size() || json[pos] != '[') return false;
     ++pos;  // 跳过 [
-    // 找到第一个 {
-    while (pos < json.size() && json[pos] != '{') ++pos;
-    if (pos >= json.size()) return false;
-    std::string songObj;
-    if (!jsonExtractObject(json, pos, songObj)) return false;
-    return jsonGetInt(songObj, "id", id);
+    for (int i = 0; i < limit; ++i) {
+        while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' ||
+                                      json[pos] == '\n' || json[pos] == '\r' || json[pos] == ','))
+            ++pos;
+        if (pos >= json.size() || json[pos] == ']') break;
+        if (json[pos] != '{') return false;
+        std::string obj;
+        if (!jsonExtractObject(json, pos, obj)) break;
+        out.push_back(std::move(obj));
+    }
+    return true;
 }
 
 }  // namespace
@@ -112,10 +112,66 @@ std::string NetEaseProvider::weapiPost(const std::string& url, const std::string
     return r.body;
 }
 
-bool NetEaseProvider::fetch(const TrackMeta& track, LyricData& out) {
+SearchResult NetEaseProvider::parseSongObject(const std::string& objJson) {
+    SearchResult sr;
+    sr.source = SourceId::NetEase;
+
+    int64_t idVal = 0;
+    if (jsonGetInt(objJson, "id", idVal)) sr.id = std::to_string(idVal);
+    jsonGetString(objJson, "name", sr.trackName);
+
+    // ar 是数组：ar[0].name。jsonGetObject 不支持提取数组值，
+    // 改为手动搜索 "ar" 键并提取数组的第一个对象。
+    size_t arKeyPos = objJson.find("\"ar\"");
+    if (arKeyPos != std::string::npos) {
+        arKeyPos += 4; // 跳过 "ar"
+        while (arKeyPos < objJson.size() && (objJson[arKeyPos] == ' ' || objJson[arKeyPos] == '\t' ||
+                                              objJson[arKeyPos] == '\n' || objJson[arKeyPos] == '\r' ||
+                                              objJson[arKeyPos] == ':'))
+            ++arKeyPos;
+        if (arKeyPos < objJson.size() && objJson[arKeyPos] == '[') {
+            ++arKeyPos; // 跳过 [
+            while (arKeyPos < objJson.size() && (objJson[arKeyPos] == ' ' || objJson[arKeyPos] == '\t' ||
+                                                  objJson[arKeyPos] == '\n' || objJson[arKeyPos] == '\r'))
+                ++arKeyPos;
+            std::string firstAr;
+            if (jsonExtractObject(objJson, arKeyPos, firstAr)) {
+                jsonGetString(firstAr, "name", sr.artistName);
+            }
+        }
+    }
+
+    // al 是对象：al.name
+    std::string alObj;
+    if (jsonGetObject(objJson, "al", alObj)) {
+        jsonGetString(alObj, "name", sr.albumName);
+    }
+
+    // dt 是时长（毫秒）
+    int64_t dtMs = 0;
+    if (jsonGetInt(objJson, "dt", dtMs) && dtMs > 0) {
+        sr.durationSec = static_cast<int>(dtMs / 1000);
+    }
+
+    return sr;
+}
+
+bool NetEaseProvider::extractSongs(const std::string& json,
+                                    std::vector<SearchResult>& out, int limit) {
+    size_t pos = json.find("\"songs\"");
+    if (pos == std::string::npos) return false;
+    pos += 7;
+    std::vector<std::string> songObjects;
+    if (!extractSongsArray(json, pos, songObjects, limit)) return false;
+    for (const auto& obj : songObjects) {
+        out.push_back(parseSongObject(obj));
+    }
+    return !out.empty();
+}
+
+bool NetEaseProvider::search(const TrackMeta& track, std::vector<SearchResult>& out) {
     if (track.title.empty()) return false;
 
-    // 1. 搜索歌曲。
     std::string searchJson =
         "{\"s\":\"" + track.artist + " " + track.title +
         "\",\"type\":1,\"offset\":0,\"limit\":5}";
@@ -125,23 +181,24 @@ bool NetEaseProvider::fetch(const TrackMeta& track, LyricData& out) {
     int64_t code = 0;
     if (!jsonGetInt(searchResp, "code", code) || code != 200) return false;
 
-    int64_t songId = 0;
-    if (!extractFirstSongId(searchResp, songId) || songId == 0) return false;
+    return extractSongs(searchResp, out, 5);
+}
 
-    // 2. 取歌词。
+bool NetEaseProvider::fetchById(const std::string& id, LyricData& out) {
+    if (id.empty()) return false;
+
     std::string lyricJson =
-        "{\"id\":\"" + std::to_string(songId) +
+        "{\"id\":\"" + id +
         "\",\"lv\":-1,\"tv\":-1,\"cs\":-1}";
     std::string lyricResp = weapiPost(kLyricUrl, lyricJson);
     if (lyricResp.empty()) return false;
 
+    int64_t code = 0;
     if (!jsonGetInt(lyricResp, "code", code) || code != 200) return false;
 
-    // 检查纯音乐标记。
     bool noLyric = false;
     if (jsonGetBool(lyricResp, "nolyric", noLyric) && noLyric) return false;
 
-    // 取 lrc.lyric（嵌套对象）。
     std::string lrcObj;
     if (!jsonGetObject(lyricResp, "lrc", lrcObj)) return false;
 

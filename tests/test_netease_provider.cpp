@@ -272,3 +272,118 @@ TEST(NetEaseProvider, RsaParams) {
     EXPECT_GE(crypto.lastRsaCall.modulus.size(), 256u);
     EXPECT_EQ(crypto.lastRsaCall.exponent, "010001");
 }
+
+// --- search() 测试 ---
+
+TEST(NetEaseProvider, SearchReturnsMultipleCandidates) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    crypto.aesResult = "\x01";
+    crypto.rsaResult = std::string(256, 'a');
+
+    // 构造含 2 首歌曲的搜索响应
+    http.searchResp.status = 200;
+    http.searchResp.body = R"({"result":{"songs":[
+        {"id":111,"name":"Song A","ar":[{"name":"Artist A"}],"al":{"name":"Album A"},"dt":200000},
+        {"id":222,"name":"Song B","ar":[{"name":"Artist B"}],"al":{"name":"Album B"},"dt":250000}
+    ],"songCount":2},"code":200})";
+
+    NetEaseProvider provider(http, crypto);
+    TrackMeta track;
+    track.artist = "Artist A";
+    track.title = "Song A";
+
+    std::vector<SearchResult> results;
+    ASSERT_TRUE(provider.search(track, results));
+    ASSERT_GE(results.size(), 2u);
+    EXPECT_EQ(results[0].id, "111");
+    EXPECT_EQ(results[0].trackName, "Song A");
+    EXPECT_EQ(results[0].artistName, "Artist A");
+    EXPECT_EQ(results[0].albumName, "Album A");
+    EXPECT_EQ(results[0].durationSec, 200);
+    EXPECT_EQ(results[0].source, SourceId::NetEase);
+}
+
+TEST(NetEaseProvider, SearchEmptyTitle) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    NetEaseProvider provider(http, crypto);
+    TrackMeta track;
+    track.title = "";
+    std::vector<SearchResult> results;
+    EXPECT_FALSE(provider.search(track, results));
+}
+
+// --- fetchById() 测试 ---
+
+TEST(NetEaseProvider, FetchByIdValid) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    crypto.aesResult = "\x01";
+    crypto.rsaResult = std::string(256, 'a');
+
+    // fetchById 只发歌词请求（1 次 POST）
+    http.lyricResp.status = 200;
+    http.lyricResp.body = makeLyricResp("[00:01.00]hello\n[00:02.00]world");
+
+    NetEaseProvider provider(http, crypto);
+    LyricData out;
+    ASSERT_TRUE(provider.fetchById("12345", out));
+    EXPECT_EQ(out.lines.size(), 2u);
+}
+
+TEST(NetEaseProvider, FetchByIdEmptyId) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    NetEaseProvider provider(http, crypto);
+    LyricData out;
+    EXPECT_FALSE(provider.fetchById("", out));
+}
+
+TEST(NetEaseProvider, FetchByIdNoLyric) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    crypto.aesResult = "\x01";
+    crypto.rsaResult = std::string(256, 'a');
+
+    http.lyricResp.status = 200;
+    http.lyricResp.body = R"({"code":200,"nolyric":true})";
+
+    NetEaseProvider provider(http, crypto);
+    LyricData out;
+    EXPECT_FALSE(provider.fetchById("12345", out));
+}
+
+// --- fetch() 使用基类默认实现：search → fetchById ---
+
+TEST(NetEaseProvider, FetchUsesDefaultImpl) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    crypto.aesResult = "\x01";
+    crypto.rsaResult = std::string(256, 'a');
+
+    // search 成功 + fetchById 成功
+    http.searchResp.status = 200;
+    http.searchResp.body = R"({"result":{"songs":[
+        {"id":999,"name":"Test","ar":[{"name":"Tester"}],"al":{"name":"Test Album"},"dt":180000}
+    ],"songCount":1},"code":200})";
+    http.lyricResp.status = 200;
+    http.lyricResp.body = makeLyricResp("[00:01.00]a\n[00:02.00]b");
+
+    NetEaseProvider provider(http, crypto);
+    TrackMeta track;
+    track.artist = "Tester";
+    track.title = "Test";
+    LyricData out;
+
+    ASSERT_TRUE(provider.fetch(track, out));
+    EXPECT_EQ(out.lines.size(), 2u);
+}
+
+// sourceId() 返回 NetEase
+TEST(NetEaseProvider, SourceIdIsNetEase) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    NetEaseProvider provider(http, crypto);
+    EXPECT_EQ(provider.sourceId(), SourceId::NetEase);
+}
