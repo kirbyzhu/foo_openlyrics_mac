@@ -345,29 +345,31 @@ static const double kOffsetMax = 30.0;
         track.title = query.UTF8String;
         track.artist = query.UTF8String;
 
-        // 逐个源诊断搜索（各用独立 HttpAdapter 避免状态覆盖）
+        // 逐个源诊断搜索
         for (auto* src : onlineSources) {
             openlyrics::HttpAdapter diagHttp;
             openlyrics::CryptoAdapter diagCrypto;
-            // 为每个源构造独立 provider（NetEase/QQ 需要 Crypto，LrcLib 不需要）
             std::vector<openlyrics::SearchResult> diag;
             bool ok = false;
+            std::string lastErr;
             if (src->sourceId() == openlyrics::SourceId::LrcLib) {
                 openlyrics::LrcLibProvider p(diagHttp);
                 ok = p.search(track, diag);
             } else if (src->sourceId() == openlyrics::SourceId::NetEase) {
                 openlyrics::NetEaseProvider p(diagHttp, diagCrypto);
                 ok = p.search(track, diag);
+                lastErr = p.lastDiag;
             } else if (src->sourceId() == openlyrics::SourceId::QQMusic) {
                 openlyrics::QQMusicProvider p(diagHttp, diagCrypto);
                 ok = p.search(track, diag);
+                lastErr = p.lastDiag;
             }
             FB2K_console_print("foo_openlyrics diag: src=",
                                openlyrics::sourceDisplayName(src->sourceId()),
                                " ok=", ok ? "YES" : "NO",
                                " hits=", std::to_string(diag.size()).c_str(),
                                " http=", std::to_string(diagHttp.lastStatus).c_str(),
-                               " url=", diagHttp.lastUrl.c_str());
+                               " err=", lastErr.c_str());
             if (!diag.empty()) {
                 for (size_t i = 0; i < diag.size() && i < 3; ++i) {
                     FB2K_console_print("  #", std::to_string(i+1).c_str(),

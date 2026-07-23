@@ -16,6 +16,9 @@ public:
     SourceId sourceId() const override { return SourceId::NetEase; }
     // fetch() 使用基类默认实现：search → 取第一候选 → fetchById
 
+    // 诊断：最近一次 search()/fetchById() 的失败原因。空串表示无错误。
+    std::string lastDiag;
+
 private:
     // weapi 加密：输入 JSON 字符串，返回 {params, encSecKey}。
     struct WeapiResult {
