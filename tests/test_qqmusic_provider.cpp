@@ -195,3 +195,92 @@ TEST(QQMusicProvider, SearchUrlContainsQuery) {
     EXPECT_NE(http.lastUrl.find("c.y.qq.com"), std::string::npos);
     EXPECT_EQ(http.getCount, 2);  // 搜索 + 取词各一次 GET
 }
+
+// --- search() 测试 ---
+
+TEST(QQMusicProvider, SearchReturnsMultipleCandidates) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    http.searchResp.status = 200;
+    http.searchResp.body = R"({"code":0,"data":{"song":{"list":[
+        {"songmid":"mid1","songname":"Song A","singer":[{"name":"Artist A"}],"albumname":"Album A","interval":200},
+        {"songmid":"mid2","songname":"Song B","singer":[{"name":"Artist B"}],"albumname":"Album B","interval":250}
+    ],"totalnum":2}}})";
+
+    QQMusicProvider provider(http, crypto);
+    TrackMeta track;
+    track.artist = "Artist A";
+    track.title = "Song A";
+
+    std::vector<SearchResult> results;
+    ASSERT_TRUE(provider.search(track, results));
+    ASSERT_GE(results.size(), 2u);
+    EXPECT_EQ(results[0].id, "mid1");
+    EXPECT_EQ(results[0].trackName, "Song A");
+    EXPECT_EQ(results[0].artistName, "Artist A");
+    EXPECT_EQ(results[0].albumName, "Album A");
+    EXPECT_EQ(results[0].durationSec, 200);
+    EXPECT_EQ(results[0].source, SourceId::QQMusic);
+}
+
+TEST(QQMusicProvider, SearchEmptyTitle) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    QQMusicProvider provider(http, crypto);
+    TrackMeta track;
+    track.title = "";
+    std::vector<SearchResult> results;
+    EXPECT_FALSE(provider.search(track, results));
+}
+
+// --- fetchById() 测试 ---
+
+TEST(QQMusicProvider, FetchByIdValid) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    http.lyricResp.status = 200;
+    http.lyricResp.body = makeLyricResp("[00:01.00]hello\n[00:02.00]world");
+
+    QQMusicProvider provider(http, crypto);
+    LyricData out;
+    ASSERT_TRUE(provider.fetchById("mid1", out));
+    EXPECT_EQ(out.lines.size(), 2u);
+}
+
+TEST(QQMusicProvider, FetchByIdEmptyId) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    QQMusicProvider provider(http, crypto);
+    LyricData out;
+    EXPECT_FALSE(provider.fetchById("", out));
+}
+
+// --- fetch() 使用基类默认实现 ---
+
+TEST(QQMusicProvider, FetchUsesDefaultImpl) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    http.searchResp.status = 200;
+    http.searchResp.body = R"({"code":0,"data":{"song":{"list":[
+        {"songmid":"mid999","songname":"Test","singer":[{"name":"Tester"}],"albumname":"Test Album","interval":180}
+    ],"totalnum":1}}})";
+    http.lyricResp.status = 200;
+    http.lyricResp.body = makeLyricResp("[00:01.00]a\n[00:02.00]b");
+
+    QQMusicProvider provider(http, crypto);
+    TrackMeta track;
+    track.artist = "Tester";
+    track.title = "Test";
+    LyricData out;
+
+    ASSERT_TRUE(provider.fetch(track, out));
+    EXPECT_EQ(out.lines.size(), 2u);
+}
+
+// sourceId() 返回 QQMusic
+TEST(QQMusicProvider, SourceIdIsQQMusic) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    QQMusicProvider provider(http, crypto);
+    EXPECT_EQ(provider.sourceId(), SourceId::QQMusic);
+}

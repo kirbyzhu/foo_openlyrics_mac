@@ -13,27 +13,6 @@ const char* const kSearchUrl =
 const char* const kLyricUrl =
     "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg";
 
-// 在 JSON 中找到 "list" 数组的第一个对象，提取其 "songmid" 字符串。
-// 搜索响应结构：data.song.list[0].songmid。
-bool extractFirstSongMid(const std::string& json, std::string& mid) {
-    // 找到 "list" 键。
-    size_t pos = json.find("\"list\"");
-    if (pos == std::string::npos) return false;
-    pos += 6;
-    while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' ||
-                                  json[pos] == '\n' || json[pos] == '\r' ||
-                                  json[pos] == ':'))
-        ++pos;
-    if (pos >= json.size() || json[pos] != '[') return false;
-    ++pos;  // 跳过 [
-    // 找第一个 {
-    while (pos < json.size() && json[pos] != '{') ++pos;
-    if (pos >= json.size()) return false;
-    std::string songObj;
-    if (!jsonExtractObject(json, pos, songObj)) return false;
-    return jsonGetString(songObj, "songmid", mid);
-}
-
 // 从歌词 API 响应中提取 base64 编码的 lyric 字段并解码。
 bool extractLyricText(const std::string& resp, std::string& lrcText) {
     int64_t code = 0;
@@ -49,10 +28,9 @@ bool extractLyricText(const std::string& resp, std::string& lrcText) {
 QQMusicProvider::QQMusicProvider(HttpClient& http, CryptoPort& crypto)
     : http_(http), crypto_(crypto) {}
 
-bool QQMusicProvider::fetch(const TrackMeta& track, LyricData& out) {
+bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& out) {
     if (track.title.empty()) return false;
 
-    // 1. 搜索歌曲。
     std::string searchUrl = std::string(kSearchUrl) +
                             "?w=" + urlEncodeComponent(track.artist + " " + track.title) +
                             "&p=1&n=5&format=json";
@@ -64,15 +42,22 @@ bool QQMusicProvider::fetch(const TrackMeta& track, LyricData& out) {
     HttpResponse searchResp = http_.get(searchUrl, headers);
     if (searchResp.status != 200) return false;
 
-    std::string songMid;
-    if (!extractFirstSongMid(searchResp.body, songMid) || songMid.empty()) {
-        return false;
-    }
+    int64_t code = 0;
+    if (!jsonGetInt(searchResp.body, "code", code) || code != 0) return false;
 
-    // 2. 取歌词。
+    return extractSongList(searchResp.body, out, 5);
+}
+
+bool QQMusicProvider::fetchById(const std::string& id, LyricData& out) {
+    if (id.empty()) return false;
+
     std::string lyricUrl = std::string(kLyricUrl) +
-                           "?songmid=" + urlEncodeComponent(songMid) +
+                           "?songmid=" + urlEncodeComponent(id) +
                            "&format=json&g_tk=5381";
+
+    std::vector<std::pair<std::string, std::string>> headers = {
+        {"Referer", "https://y.qq.com"},
+    };
 
     HttpResponse lyricResp = http_.get(lyricUrl, headers);
     if (lyricResp.status != 200) return false;
@@ -82,6 +67,75 @@ bool QQMusicProvider::fetch(const TrackMeta& track, LyricData& out) {
 
     out = LrcParser::parse(lrcText);
     return true;
+}
+
+bool QQMusicProvider::extractSongList(const std::string& json, std::vector<SearchResult>& out, int limit) {
+    // 找到 "list" 键
+    size_t pos = json.find("\"list\"");
+    if (pos == std::string::npos) return false;
+    pos += 6;
+    while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' ||
+                                  json[pos] == '\n' || json[pos] == '\r' || json[pos] == ':'))
+        ++pos;
+    if (pos >= json.size() || json[pos] != '[') return false;
+    ++pos;  // 跳过 [
+
+    for (int i = 0; i < limit; ++i) {
+        while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' ||
+                                      json[pos] == '\n' || json[pos] == '\r' || json[pos] == ','))
+            ++pos;
+        if (pos >= json.size() || json[pos] == ']') break;
+        if (json[pos] != '{') return false;
+
+        std::string obj;
+        if (!jsonExtractObject(json, pos, obj)) break;
+
+        SearchResult sr;
+        sr.source = SourceId::QQMusic;
+
+        jsonGetString(obj, "songmid", sr.id);
+        jsonGetString(obj, "songname", sr.trackName);
+
+        // singer 是数组：singer[0].name
+        // jsonGetObject 不支持数组，手工定位 "singer" 后跳过 [ 然后提取第一个对象
+        size_t singerPos = obj.find("\"singer\"");
+        if (singerPos != std::string::npos) {
+            singerPos += 8;  // 跳过 "singer"
+            while (singerPos < obj.size() && (obj[singerPos] == ' ' || obj[singerPos] == '\t' ||
+                                              obj[singerPos] == '\n' || obj[singerPos] == '\r' ||
+                                              obj[singerPos] == ':'))
+                ++singerPos;
+            if (singerPos < obj.size() && obj[singerPos] == '[') {
+                ++singerPos;
+                while (singerPos < obj.size() && (obj[singerPos] == ' ' || obj[singerPos] == '\t' ||
+                                                  obj[singerPos] == '\n' || obj[singerPos] == '\r' ||
+                                                  obj[singerPos] == ','))
+                    ++singerPos;
+                if (singerPos < obj.size() && obj[singerPos] == '{') {
+                    std::string firstSinger;
+                    if (jsonExtractObject(obj, singerPos, firstSinger)) {
+                        jsonGetString(firstSinger, "name", sr.artistName);
+                    }
+                }
+            }
+        }
+
+        // albumname 可能直接是字段，也可能是 album.name
+        if (!jsonGetString(obj, "albumname", sr.albumName)) {
+            std::string alObj;
+            if (jsonGetObject(obj, "album", alObj)) {
+                jsonGetString(alObj, "name", sr.albumName);
+            }
+        }
+
+        int64_t interval = 0;
+        if (jsonGetInt(obj, "interval", interval) && interval > 0) {
+            sr.durationSec = static_cast<int>(interval);
+        }
+
+        if (!sr.id.empty()) out.push_back(std::move(sr));
+    }
+    return !out.empty();
 }
 
 }  // namespace openlyrics
