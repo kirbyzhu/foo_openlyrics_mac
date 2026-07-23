@@ -339,24 +339,31 @@ static const double kOffsetMax = 30.0;
 
         std::vector<openlyrics::LyricSource*> onlineSources = {&lrcLib, &netease, &qqmusic};
         openlyrics::Matcher matcher;
-        openlyrics::SearchCoordinator coordinator(onlineSources, matcher);
 
-        // 手动搜索需要 TrackMeta：将查询字符串同时填入 title 和 artist，
-        // 使 Matcher 能对候选的 trackName 和 artistName 都做匹配评分。
+        // 手动搜索需要 TrackMeta
         openlyrics::TrackMeta track;
         track.title = query.UTF8String;
         track.artist = query.UTF8String;
 
-        auto groups = coordinator.searchAll(track);
-
-        // 诊断每个源的结果数量
-        std::string diag = "foo_openlyrics search: ";
-        diag += query.UTF8String;
-        for (const auto& g : groups) {
-            diag += " [" + g.sourceName + "=" + std::to_string(g.items.size()) + "]";
+        // 逐个源诊断搜索
+        for (auto* src : onlineSources) {
+            std::vector<openlyrics::SearchResult> diag;
+            bool ok = src->search(track, diag);
+            FB2K_console_print("foo_openlyrics diag: src=",
+                               openlyrics::sourceDisplayName(src->sourceId()),
+                               " ok=", ok ? "YES" : "NO",
+                               " hits=", std::to_string(diag.size()).c_str());
+            if (!diag.empty()) {
+                for (size_t i = 0; i < diag.size() && i < 3; ++i) {
+                    FB2K_console_print("  #", std::to_string(i+1).c_str(),
+                                       " id=", diag[i].id.c_str(),
+                                       " title=", diag[i].trackName.c_str());
+                }
+            }
         }
-        if (groups.empty()) diag += " ALL_EMPTY";
-        FB2K_console_print(diag.c_str());
+
+        openlyrics::SearchCoordinator coordinator(onlineSources, matcher);
+        auto groups = coordinator.searchAll(track);
 
         static const int kMinScore = 30;  // 手动搜索最低相关度阈值
 
