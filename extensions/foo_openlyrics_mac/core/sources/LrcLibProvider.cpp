@@ -2,6 +2,7 @@
 #include "net/UrlEncode.h"
 #include "net/JsonField.h"
 #include "parser/LrcParser.h"
+#include <set>
 
 
 namespace openlyrics {
@@ -121,14 +122,38 @@ bool LrcLibProvider::fetchById(int id, LyricData& out) {
 
 bool LrcLibProvider::search(const TrackMeta& track, std::vector<SearchResult>& out) {
     if (track.title.empty()) return false;
-    std::string query = track.artist.empty() ? track.title
-                                             : track.artist + " " + track.title;
-    std::vector<SearchResult> raw;
-    if (!search(query, raw)) return false;
-    for (auto& r : raw) {
-        r.source = SourceId::LrcLib;
-        out.push_back(std::move(r));
+
+    // 两轮搜索：先 artist+title，未命中或结果少则追加 title-only
+    auto collect = [&](const std::string& query) {
+        std::vector<SearchResult> raw;
+        if (search(query, raw)) {
+            for (auto& r : raw) {
+                r.source = SourceId::LrcLib;
+                out.push_back(std::move(r));
+            }
+        }
+    };
+
+    std::string fullQuery = track.artist.empty() ? track.title
+                                                  : track.artist + " " + track.title;
+    collect(fullQuery);
+
+    // 若 artist+title 搜索结果 < 3 条，且 artist 非空，追加 title-only 搜索扩大候选池
+    if (out.size() < 3 && !track.artist.empty()) {
+        // 按 id 去重：已收集的 id 不重复加入
+        std::set<std::string> seen;
+        for (const auto& r : out) seen.insert(r.id);
+
+        std::vector<SearchResult> titleOnly;
+        if (search(track.title, titleOnly)) {
+            for (auto& r : titleOnly) {
+                if (seen.count(r.id)) continue;
+                r.source = SourceId::LrcLib;
+                out.push_back(std::move(r));
+            }
+        }
     }
+
     return !out.empty();
 }
 

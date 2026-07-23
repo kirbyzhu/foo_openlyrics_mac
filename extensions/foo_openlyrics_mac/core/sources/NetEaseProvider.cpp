@@ -5,6 +5,8 @@
 #include "parser/LrcParser.h"
 
 #include <random>
+#include <set>
+#include <algorithm>
 
 namespace openlyrics {
 
@@ -172,16 +174,36 @@ bool NetEaseProvider::extractSongs(const std::string& json,
 bool NetEaseProvider::search(const TrackMeta& track, std::vector<SearchResult>& out) {
     if (track.title.empty()) return false;
 
-    std::string searchJson =
-        "{\"s\":\"" + track.artist + " " + track.title +
-        "\",\"type\":1,\"offset\":0,\"limit\":5}";
-    std::string searchResp = weapiPost(kSearchUrl, searchJson);
-    if (searchResp.empty()) return false;
+    auto tryQuery = [&](const std::string& query) {
+        std::string searchJson =
+            "{\"s\":\"" + query +
+            "\",\"type\":1,\"offset\":0,\"limit\":5}";
+        std::string searchResp = weapiPost(kSearchUrl, searchJson);
+        if (searchResp.empty()) return false;
 
-    int64_t code = 0;
-    if (!jsonGetInt(searchResp, "code", code) || code != 200) return false;
+        int64_t code = 0;
+        if (!jsonGetInt(searchResp, "code", code) || code != 200) return false;
 
-    return extractSongs(searchResp, out, 5);
+        return extractSongs(searchResp, out, 5);
+    };
+
+    std::string fullQuery = track.artist.empty() ? track.title
+                                                  : track.artist + " " + track.title;
+    bool ok = tryQuery(fullQuery);
+
+    // 若 artist+title 搜索结果 < 3 条且 artist 非空，追加 title-only 搜索
+    if (out.size() < 3 && !track.artist.empty()) {
+        std::set<std::string> seen;
+        for (const auto& r : out) seen.insert(r.id);
+        size_t before = out.size();
+        tryQuery(track.title);
+        // 去重：移除 title-only 搜索中已存在的 id
+        out.erase(std::remove_if(out.begin() + before, out.end(),
+                    [&](const SearchResult& r) { return seen.count(r.id); }),
+                  out.end());
+    }
+
+    return ok || !out.empty();
 }
 
 bool NetEaseProvider::fetchById(const std::string& id, LyricData& out) {

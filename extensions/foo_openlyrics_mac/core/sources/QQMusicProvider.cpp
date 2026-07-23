@@ -3,6 +3,8 @@
 #include "net/JsonField.h"
 #include "net/UrlEncode.h"
 #include "parser/LrcParser.h"
+#include <set>
+#include <algorithm>
 
 namespace openlyrics {
 
@@ -31,21 +33,41 @@ QQMusicProvider::QQMusicProvider(HttpClient& http, CryptoPort& crypto)
 bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& out) {
     if (track.title.empty()) return false;
 
-    std::string searchUrl = std::string(kSearchUrl) +
-                            "?w=" + urlEncodeComponent(track.artist + " " + track.title) +
-                            "&p=1&n=5&format=json";
+    auto tryQuery = [&](const std::string& query) {
+        std::string searchUrl = std::string(kSearchUrl) +
+                                "?w=" + urlEncodeComponent(query) +
+                                "&p=1&n=5&format=json";
 
-    std::vector<std::pair<std::string, std::string>> headers = {
-        {"Referer", "https://y.qq.com"},
+        std::vector<std::pair<std::string, std::string>> headers = {
+            {"Referer", "https://y.qq.com"},
+        };
+
+        HttpResponse searchResp = http_.get(searchUrl, headers);
+        if (searchResp.status != 200) return false;
+
+        int64_t code = 0;
+        if (!jsonGetInt(searchResp.body, "code", code) || code != 0) return false;
+
+        return extractSongList(searchResp.body, out, 5);
     };
 
-    HttpResponse searchResp = http_.get(searchUrl, headers);
-    if (searchResp.status != 200) return false;
+    std::string fullQuery = track.artist.empty() ? track.title
+                                                  : track.artist + " " + track.title;
+    bool ok = tryQuery(fullQuery);
 
-    int64_t code = 0;
-    if (!jsonGetInt(searchResp.body, "code", code) || code != 0) return false;
+    // 若 artist+title 搜索结果 < 3 条且 artist 非空，追加 title-only 搜索
+    if (out.size() < 3 && !track.artist.empty()) {
+        std::set<std::string> seen;
+        for (const auto& r : out) seen.insert(r.id);
+        size_t before = out.size();
+        tryQuery(track.title);
+        // 去重
+        out.erase(std::remove_if(out.begin() + before, out.end(),
+                    [&](const SearchResult& r) { return seen.count(r.id); }),
+                  out.end());
+    }
 
-    return extractSongList(searchResp.body, out, 5);
+    return ok || !out.empty();
 }
 
 bool QQMusicProvider::fetchById(const std::string& id, LyricData& out) {

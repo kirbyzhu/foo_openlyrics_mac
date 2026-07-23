@@ -193,7 +193,7 @@ TEST(QQMusicProvider, SearchUrlContainsQuery) {
     provider.fetch(track, out);
 
     EXPECT_NE(http.lastUrl.find("c.y.qq.com"), std::string::npos);
-    EXPECT_EQ(http.getCount, 2);  // 搜索 + 取词各一次 GET
+    EXPECT_GE(http.getCount, 2);  // 搜索（含 title-only 回退）+ 取词
 }
 
 // --- search() 测试 ---
