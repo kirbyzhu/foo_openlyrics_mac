@@ -4,10 +4,16 @@
 
 namespace openlyrics {
 
-SearchCoordinator::SearchCoordinator(SearchPipeline& localPipeline,
+SearchCoordinator::SearchCoordinator(SearchPipeline* localPipeline,
                                      std::vector<LyricSource*> onlineSources,
                                      Matcher& matcher)
     : localPipeline_(localPipeline)
+    , onlineSources_(std::move(onlineSources))
+    , matcher_(matcher) {}
+
+SearchCoordinator::SearchCoordinator(std::vector<LyricSource*> onlineSources,
+                                     Matcher& matcher)
+    : localPipeline_(nullptr)
     , onlineSources_(std::move(onlineSources))
     , matcher_(matcher) {}
 
@@ -33,7 +39,7 @@ std::vector<SearchResult> SearchCoordinator::collectAndScore(const TrackMeta& tr
 
 bool SearchCoordinator::resolve(const TrackMeta& track, LyricData& out) {
     // 1. 本地快速通道
-    if (localPipeline_.resolve(track, out)) return true;
+    if (localPipeline_ && localPipeline_->resolve(track, out)) return true;
 
     // 2. 在线候选池评分
     auto pool = collectAndScore(track);

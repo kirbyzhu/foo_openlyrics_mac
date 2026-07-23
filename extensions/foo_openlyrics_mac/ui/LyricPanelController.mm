@@ -25,6 +25,8 @@
 #include "parser/LrcParser.h"
 #include "parser/LrcSerializer.h"
 #include "config/AppConfig.h"
+#include "matching/Matcher.h"
+#include "pipeline/SearchCoordinator.h"
 
 static NSString *const kPlaceholderText = @"未在播放";
 static const NSTimeInterval kSyncTickInterval = 0.06;
@@ -55,7 +57,7 @@ static const double kOffsetMax = 30.0;
 // 搜索
 @property(nonatomic, strong) NSPopover *searchPopover;
 @property(nonatomic, strong) NSTableView *searchTableView;
-@property(nonatomic, copy) NSArray<NSDictionary *> *searchResults;
+@property(nonatomic, copy) NSArray<NSDictionary *> *searchSections;
 @end
 
 @implementation LyricPanelController {
@@ -78,7 +80,7 @@ static const double kOffsetMax = 30.0;
 
     // 搜索框
     NSSearchField *search = [[NSSearchField alloc] initWithFrame:NSZeroRect];
-    search.placeholderString = @"搜索 LrcLib…";
+    search.placeholderString = @"搜索歌词…";
     search.translatesAutoresizingMaskIntoConstraints = NO;
     search.target = self;
     search.action = @selector(searchFieldAction:);
@@ -319,30 +321,63 @@ static const double kOffsetMax = 30.0;
 
     __weak __typeof__(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        // 构建 SearchCoordinator 用于搜索
         openlyrics::HttpAdapter http;
+        openlyrics::CryptoAdapter crypto;
         openlyrics::LrcLibProvider lrcLib(http);
-        std::vector<openlyrics::SearchResult> results;
-        lrcLib.search(query.UTF8String, results);
+        openlyrics::NetEaseProvider netease(http, crypto);
+        openlyrics::QQMusicProvider qqmusic(http, crypto);
 
-        NSMutableArray<NSDictionary *> *arr = [NSMutableArray arrayWithCapacity:results.size()];
-        for (const auto& r : results) {
-            [arr addObject:@{
-                @"id": [NSString stringWithUTF8String:r.id.c_str()], @"trackName": [NSString stringWithUTF8String:r.trackName.c_str()],
-                @"artistName": [NSString stringWithUTF8String:r.artistName.c_str()],
-                @"albumName": [NSString stringWithUTF8String:r.albumName.c_str()],
-            }];
+        std::vector<openlyrics::LyricSource*> onlineSources = {&lrcLib, &netease, &qqmusic};
+        openlyrics::Matcher matcher;
+        openlyrics::SearchCoordinator coordinator(onlineSources, matcher);
+
+        // 手动搜索需要 TrackMeta，将查询字符串填入 title
+        openlyrics::TrackMeta track;
+        track.title = query.UTF8String;
+
+        auto groups = coordinator.searchAll(track);
+
+        // 转为 NSArray 供 UI 展示：每个元素是一个 section 字典
+        NSMutableArray<NSDictionary *> *sections = [NSMutableArray array];
+        for (const auto& g : groups) {
+            NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
+            for (const auto& r : g.items) {
+                [items addObject:@{
+                    @"id": [NSString stringWithUTF8String:r.id.c_str()],
+                    @"trackName": [NSString stringWithUTF8String:r.trackName.c_str()],
+                    @"artistName": [NSString stringWithUTF8String:r.artistName.c_str()],
+                    @"albumName": [NSString stringWithUTF8String:r.albumName.c_str()],
+                    @"durationSec": @(r.durationSec),
+                    @"source": @(static_cast<int>(r.source)),
+                    @"sourceName": [NSString stringWithUTF8String:openlyrics::sourceDisplayName(r.source)],
+                    @"score": @(r.score),
+                }];
+            }
+            if (items.count > 0) {
+                [sections addObject:@{
+                    @"sourceName": [NSString stringWithUTF8String:g.sourceName.c_str()],
+                    @"source": @(static_cast<int>(g.source)),
+                    @"items": items,
+                }];
+            }
         }
 
         dispatch_async(dispatch_get_main_queue(), ^{
             __typeof__(self) strongSelf = weakSelf;
             if (strongSelf == nil) return;
-            strongSelf.searchField.placeholderString = @"搜索 LrcLib…";
-            strongSelf.searchResults = arr;
+            strongSelf.searchField.placeholderString = @"搜索歌词…";
+            strongSelf.searchSections = sections;
             [strongSelf.searchTableView reloadData];
-            if (arr.count > 0) {
+            // 计算总行数
+            NSInteger totalRows = 0;
+            for (NSDictionary *sec in sections) {
+                totalRows += [sec[@"items"] count];
+            }
+            if (totalRows > 0) {
                 NSViewController *vc = strongSelf.searchPopover.contentViewController;
-                vc.view.frame = NSMakeRect(0, 0, 280,
-                    MIN(arr.count * strongSelf.searchTableView.rowHeight + 4, 200));
+                vc.view.frame = NSMakeRect(0, 0, 320,
+                    MIN(totalRows * strongSelf.searchTableView.rowHeight + sections.count * 24 + 8, 300));
                 [strongSelf.searchPopover showRelativeToRect:strongSelf.searchField.bounds
                                                       ofView:strongSelf.searchField
                                                preferredEdge:NSRectEdgeMaxY];
@@ -353,10 +388,29 @@ static const double kOffsetMax = 30.0;
 
 - (void)searchRowDoubleClicked:(id)sender {
     NSInteger row = _searchTableView.clickedRow;
-    if (row < 0 || row >= (NSInteger)_searchResults.count) return;
-    int lyricId = [_searchResults[row][@"id"] intValue];
+    if (row < 0) return;
     [_searchPopover close];
     self.searchField.stringValue = @"";
+
+    // 从 searchSections 中定位 row
+    NSDictionary *item = nil;
+    openlyrics::SourceId source = openlyrics::SourceId::Unknown;
+    NSInteger offset = 0;
+    for (NSDictionary *sec in _searchSections) {
+        NSArray *items = sec[@"items"];
+        NSInteger idx = row - offset;
+        if (idx >= 0 && idx < (NSInteger)items.count) {
+            item = items[idx];
+            source = static_cast<openlyrics::SourceId>([sec[@"source"] intValue]);
+            break;
+        }
+        offset += items.count;
+    }
+    if (!item) return;
+
+    NSString *lyricId = item[@"id"];
+    int srcInt = [item[@"source"] intValue];
+    openlyrics::SourceId sid = static_cast<openlyrics::SourceId>(srcInt);
 
     PlaybackHub *hub = [PlaybackHub sharedHub];
     if (![hub hasTrack]) return;
@@ -369,9 +423,22 @@ static const double kOffsetMax = 30.0;
     __weak __typeof__(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         openlyrics::HttpAdapter http;
-        openlyrics::LrcLibProvider lrcLib(http);
+        openlyrics::CryptoAdapter crypto;
         openlyrics::LyricData data;
-        if (!lrcLib.fetchById(lyricId, data)) {
+        bool ok = false;
+
+        if (sid == openlyrics::SourceId::LrcLib) {
+            openlyrics::LrcLibProvider provider(http);
+            ok = provider.fetchById(lyricId.UTF8String, data);
+        } else if (sid == openlyrics::SourceId::NetEase) {
+            openlyrics::NetEaseProvider provider(http, crypto);
+            ok = provider.fetchById(lyricId.UTF8String, data);
+        } else if (sid == openlyrics::SourceId::QQMusic) {
+            openlyrics::QQMusicProvider provider(http, crypto);
+            ok = provider.fetchById(lyricId.UTF8String, data);
+        }
+
+        if (!ok) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 __typeof__(self) strongSelf = weakSelf;
                 if (strongSelf == nil || strongSelf.trackRequestToken != requestToken) return;
@@ -380,6 +447,7 @@ static const double kOffsetMax = 30.0;
             });
             return;
         }
+
         openlyrics::FileSystemAdapter fs;
         openlyrics::LyricStore store(fs);
         store.save(meta, data);
@@ -401,12 +469,27 @@ static const double kOffsetMax = 30.0;
 #pragma mark - NSTableViewDataSource
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
-    return (NSInteger)_searchResults.count;
+    NSInteger total = 0;
+    for (NSDictionary *sec in _searchSections) {
+        total += [sec[@"items"] count];
+    }
+    return total;
 }
 
 - (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)col row:(NSInteger)row {
-    if (row < 0 || row >= (NSInteger)_searchResults.count) return nil;
-    NSDictionary *item = _searchResults[row];
+    // 从 searchSections 中定位 item
+    NSDictionary *item = nil;
+    NSInteger offset = 0;
+    for (NSDictionary *sec in _searchSections) {
+        NSArray *items = sec[@"items"];
+        if (row - offset < (NSInteger)items.count) {
+            item = items[row - offset];
+            break;
+        }
+        offset += items.count;
+    }
+    if (!item) return nil;
+
     NSString *cellId = @"searchCell";
     NSTableCellView *cell = [tableView makeViewWithIdentifier:cellId owner:self];
     if (cell == nil) {
@@ -424,8 +507,10 @@ static const double kOffsetMax = 30.0;
         ]];
         cell.textField = tf;
     }
-    cell.textField.stringValue = [NSString stringWithFormat:@"%@  —  %@",
-        item[@"trackName"], item[@"artistName"]];
+    NSString *sourceTag = item[@"sourceName"];
+    NSNumber *score = item[@"score"];
+    cell.textField.stringValue = [NSString stringWithFormat:@"[%@ %@%%] %@  —  %@",
+        sourceTag, score, item[@"trackName"], item[@"artistName"]];
     return cell;
 }
 
@@ -583,72 +668,61 @@ static const double kOffsetMax = 30.0;
         openlyrics::FileSystemAdapter fsAdapter;
         openlyrics::TagSource tagSource(tagAdapter);
         openlyrics::LocalFileSource localSource(fsAdapter);
-        openlyrics::SearchPipeline pipeline({&tagSource, &localSource});
+        openlyrics::SearchPipeline localPipeline({&tagSource, &localSource});
+
+        // 构建在线源列表（按 config.sources 顺序，仅启用的在线源）
+        std::vector<openlyrics::LyricSource*> onlineSources;
+        openlyrics::HttpAdapter http;
+        openlyrics::CryptoAdapter crypto;
+        openlyrics::LrcLibProvider lrcLib(http);
+        openlyrics::NetEaseProvider netease(http, crypto);
+        openlyrics::QQMusicProvider qqmusic(http, crypto);
+
+        for (const auto& src : config.sources) {
+            if (!src.enabled) continue;
+            if (src.key == "lrclib") onlineSources.push_back(&lrcLib);
+            else if (src.key == "netease") onlineSources.push_back(&netease);
+            else if (src.key == "qqmusic") onlineSources.push_back(&qqmusic);
+        }
+
+        openlyrics::Matcher matcher;
+        openlyrics::SearchCoordinator coordinator(&localPipeline, onlineSources, matcher);
 
         openlyrics::LyricData resolved;
-        bool found = pipeline.resolve(meta, resolved);
+        bool found = coordinator.resolve(meta, resolved);
         std::string sourceLabel = "none";
+
         if (found) {
+            // 反查匹配源
             openlyrics::LyricData tagProbe;
-            sourceLabel = tagSource.fetch(meta, tagProbe) ? "tag" : "local";
-        }
+            if (tagSource.fetch(meta, tagProbe)) sourceLabel = "tag";
+            else {
+                openlyrics::LyricData localProbe;
+                if (localSource.fetch(meta, localProbe)) sourceLabel = "local";
+                else sourceLabel = "online";
+            }
 
-        bool onlineSaved = false;
-        auto trySource = [&](const char* label, const char* statusText, auto& provider,
-                             bool& found, openlyrics::LyricData& resolved,
-                             bool& saved, int& failures) -> bool {
-            if (failures >= maxFail) return false;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                __typeof__(self) strongSelf = weakSelf;
-                if (strongSelf == nil) return;
-                if (strongSelf.trackRequestToken != requestToken) return;
-                strongSelf.statusLabel.stringValue =
-                    [NSString stringWithFormat:@"%@ · %s", title, statusText];
-            });
-            openlyrics::LyricData data;
-            if (provider.fetch(meta, data)) {
-                found = true; resolved = data; sourceLabel = label; failures = 0;
+            // 在线命中时落盘
+            if (sourceLabel == "online") {
                 openlyrics::LyricStore store(fsAdapter);
-                saved = store.save(meta, data);
-                return true;
-            }
-            ++failures;
-            return false;
-        };
-
-        // 按 config.sources 顺序遍历在线源
-        for (const auto& src : config.sources) {
-            if (found) break;
-            if (!src.enabled) continue;
-            if (src.key == "tag" || src.key == "local") continue;  // 已由 SearchPipeline 覆盖
-
-            if (src.key == "lrclib" && lrclibFails < maxFail) {
-                openlyrics::HttpAdapter http;
-                openlyrics::LrcLibProvider lrcLib(http);
-                trySource("online", "在线获取中…", lrcLib, found, resolved, onlineSaved,
-                          lrclibFails);
-            } else if (src.key == "netease" && neteaseFails < maxFail) {
-                openlyrics::HttpAdapter http;
-                openlyrics::CryptoAdapter crypto;
-                openlyrics::NetEaseProvider netease(http, crypto);
-                trySource("netease", "正在搜索网易云…", netease, found, resolved, onlineSaved,
-                          neteaseFails);
-            } else if (src.key == "qqmusic" && qqmusicFails < maxFail) {
-                openlyrics::HttpAdapter http;
-                openlyrics::CryptoAdapter crypto;
-                openlyrics::QQMusicProvider qqmusic(http, crypto);
-                trySource("qqmusic", "正在搜索QQ音乐…", qqmusic, found, resolved, onlineSaved,
-                          qqmusicFails);
+                store.save(meta, resolved);
             }
         }
 
-        if (!found) resolved = openlyrics::LyricData{};
+        // 更新失效计数（简化：在线命中时清零，全失时递增）
+        if (found && sourceLabel == "online") {
+            lrclibFails = 0;
+            neteaseFails = 0;
+            qqmusicFails = 0;
+        } else if (!found) {
+            if (lrclibFails < maxFail) lrclibFails++;
+            if (neteaseFails < maxFail) neteaseFails++;
+            if (qqmusicFails < maxFail) qqmusicFails++;
+        }
 
         FB2K_console_print("foo_openlyrics: native path=", meta.path.c_str(),
                             found ? "  lyric=matched source=" : "  lyric=not-found source=",
-                            sourceLabel.c_str(),
-                            (sourceLabel == "online" || sourceLabel == "netease" || sourceLabel == "qqmusic")
-                                ? (onlineSaved ? "  saved=yes" : "  saved=no") : "");
+                            sourceLabel.c_str());
 
         dispatch_async(dispatch_get_main_queue(), ^{
             __typeof__(self) strongSelf = weakSelf;
@@ -658,10 +732,10 @@ static const double kOffsetMax = 30.0;
             strongSelf->_lrclibFailures = lrclibFails;
             strongSelf->_neteaseFailures = neteaseFails;
             strongSelf->_qqmusicFailures = qqmusicFails;
-            strongSelf->_currentLyricData = resolved;
+            strongSelf->_currentLyricData = found ? resolved : openlyrics::LyricData{};
             strongSelf->_currentExtraOffsetMs = config.defaultOffsetMs;
             strongSelf->_currentSourceLabel = sourceLabel;
-            [strongSelf.lyricView setLyricData:resolved];
+            [strongSelf.lyricView setLyricData:strongSelf->_currentLyricData];
             strongSelf.statusLabel.stringValue = found ? title
                 : [NSString stringWithFormat:@"%@ · 未找到歌词", title];
             strongSelf.offsetContainer.hidden = resolved.lines.empty();

@@ -112,7 +112,7 @@ TEST(SearchCoordinator, LocalHitSkipsOnline) {
     fakeOnline.lyricData.lines = {l};
 
     Matcher matcher;
-    SearchCoordinator coordinator(pipeline, {&fakeOnline}, matcher);
+    SearchCoordinator coordinator(&pipeline, {&fakeOnline}, matcher);
 
     TrackMeta track;
     track.artist = "x";
@@ -143,7 +143,7 @@ TEST(SearchCoordinator, OnlineFallbackBestCandidate) {
     fakeOnline.lyricData.lines = {l};
 
     Matcher matcher;
-    SearchCoordinator coordinator(pipeline, {&fakeOnline}, matcher);
+    SearchCoordinator coordinator(&pipeline, {&fakeOnline}, matcher);
 
     TrackMeta track;
     track.title = "晴天";
@@ -170,7 +170,7 @@ TEST(SearchCoordinator, LowScoreReturnsFalse) {
     };
 
     Matcher matcher;
-    SearchCoordinator coordinator(pipeline, {&fakeOnline}, matcher);
+    SearchCoordinator coordinator(&pipeline, {&fakeOnline}, matcher);
 
     TrackMeta track;
     track.title = "晴天";
@@ -200,7 +200,7 @@ TEST(SearchCoordinator, SearchAllGroupsBySource) {
     };
 
     Matcher matcher;
-    SearchCoordinator coordinator(pipeline, {&netease, &qq}, matcher);
+    SearchCoordinator coordinator(&pipeline, {&netease, &qq}, matcher);
 
     TrackMeta track;
     track.title = "晴天";
@@ -235,7 +235,7 @@ TEST(SearchCoordinator, FailingSourceDoesNotAffectOthers) {
     };
 
     Matcher matcher;
-    SearchCoordinator coordinator(pipeline, {&bad, &good}, matcher);
+    SearchCoordinator coordinator(&pipeline, {&bad, &good}, matcher);
 
     TrackMeta track;
     track.title = "晴天";

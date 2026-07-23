@@ -17,9 +17,13 @@ struct GroupedResults {
 
 class SearchCoordinator {
 public:
-    SearchCoordinator(SearchPipeline& localPipeline,
+    // 带本地快速通道的构造器（自动模式）
+    SearchCoordinator(SearchPipeline* localPipeline,
                       std::vector<LyricSource*> onlineSources,
                       Matcher& matcher);
+
+    // 仅在线源的构造器（手动搜索模式）
+    SearchCoordinator(std::vector<LyricSource*> onlineSources, Matcher& matcher);
 
     // 自动模式：本地快速通道 → 在线候选池评分 → 取最优
     bool resolve(const TrackMeta& track, LyricData& out);
@@ -31,7 +35,7 @@ private:
     // 并行调用所有在线源 search()，收集候选池并评分降序
     std::vector<SearchResult> collectAndScore(const TrackMeta& track);
 
-    SearchPipeline& localPipeline_;
+    SearchPipeline* localPipeline_;  // 可为 nullptr
     std::vector<LyricSource*> onlineSources_;
     Matcher& matcher_;
     static constexpr int kLowThreshold = 40;
