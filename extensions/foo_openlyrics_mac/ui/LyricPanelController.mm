@@ -434,6 +434,19 @@ static const double kOffsetMax = 30.0;
         if (sid == openlyrics::SourceId::LrcLib) {
             openlyrics::LrcLibProvider provider(http);
             ok = provider.fetchById(lyricId.UTF8String, data);
+            // ID 端点不可用时回退到命名查询
+            if (!ok) {
+                NSString *candTitle = item[@"trackName"];
+                NSString *candArtist = item[@"artistName"];
+                if (candTitle.length > 0) {
+                    openlyrics::TrackMeta fm;
+                    fm.title = candTitle.UTF8String;
+                    fm.artist = candArtist.UTF8String ?: "";
+                    fm.lengthMs = [item[@"durationSec"] intValue] * 1000LL;
+                    ok = provider.fetch(fm, data);
+                    FB2K_console_print("foo_openlyrics panel: fallback fetch result=", ok ? "OK" : "FAIL");
+                }
+            }
         } else if (sid == openlyrics::SourceId::NetEase) {
             openlyrics::NetEaseProvider provider(http, crypto);
             ok = provider.fetchById(lyricId.UTF8String, data);

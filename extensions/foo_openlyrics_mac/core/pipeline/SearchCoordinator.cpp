@@ -53,7 +53,19 @@ bool SearchCoordinator::resolve(const TrackMeta& track, LyricData& out) {
         if (candidate.score < kLowThreshold) break;
         for (auto* source : onlineSources_) {
             if (source && source->sourceId() == candidate.source) {
+                // 优先 ID 查询
                 if (source->fetchById(candidate.id, out)) return true;
+                // ID 查询失败 → 用候选元数据构造 TrackMeta 做命名查询回退
+                // LrcLibProvider::fetch() 走 /api/get?artist_name=&track_name= 路径，
+                // 不依赖 fetchById，可在 ID 端点不可用时成功拉取。
+                if (!candidate.trackName.empty()) {
+                    TrackMeta fallback;
+                    fallback.title = candidate.trackName;
+                    fallback.artist = candidate.artistName;
+                    fallback.album = candidate.albumName;
+                    fallback.lengthMs = static_cast<int64_t>(candidate.durationSec) * 1000;
+                    if (source->fetch(fallback, out)) return true;
+                }
                 break;
             }
         }

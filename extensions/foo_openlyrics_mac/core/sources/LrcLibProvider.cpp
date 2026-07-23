@@ -98,7 +98,11 @@ bool LrcLibProvider::fetchById(int id, LyricData& out) {
 
     std::string url = "https://lrclib.net/api/get?id=" + std::to_string(id);
     HttpResponse r = http_.get(url, {});
-    if (r.status != 200) return false;
+    if (r.status != 200) {
+        // ID 端点返回非 200，此系已知现象：LrcLib /api/get?id=N 可能因 ID 失效、
+        // 限流或服务端策略返回错误。调用方应回退到命名查询 fetch()。
+        return false;
+    }
 
     bool instrumental = false;
     if (jsonGetBool(r.body, "instrumental", instrumental) && instrumental) {

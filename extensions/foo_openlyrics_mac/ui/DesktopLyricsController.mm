@@ -1113,34 +1113,8 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         openlyrics::Matcher matcher;
         openlyrics::SearchCoordinator coordinator(&localPipeline, onlineSources, matcher);
 
-        // 诊断：逐个源搜索并输出结果
-        for (auto* src : onlineSources) {
-            if (!src) continue;
-            std::vector<openlyrics::SearchResult> diagResults;
-            if (src->search(meta, diagResults)) {
-                for (auto& r : diagResults) {
-                    r.score = matcher.score(meta, r);
-                }
-                std::sort(diagResults.begin(), diagResults.end(),
-                          [](const openlyrics::SearchResult& a, const openlyrics::SearchResult& b) {
-                              return a.score > b.score;
-                          });
-                int topN = std::min((int)diagResults.size(), 3);
-                for (int i = 0; i < topN; ++i) {
-                    auto& r = diagResults[i];
-                    FB2K_console_print("foo_openlyrics desk: [", openlyrics::sourceDisplayName(src->sourceId()),
-                                       "] #", std::to_string(i+1).c_str(),
-                                       " id=", r.id.c_str(),
-                                       " title='", r.trackName.c_str(), "'",
-                                       " artist='", r.artistName.c_str(), "'",
-                                       " dur=", std::to_string(r.durationSec).c_str(),
-                                       " score=", std::to_string(r.score).c_str());
-                }
-            } else {
-                FB2K_console_print("foo_openlyrics desk: [", openlyrics::sourceDisplayName(src->sourceId()),
-                                   "] search=EMPTY");
-            }
-        }
+        FB2K_console_print("foo_openlyrics desk: resolve artist=", meta.artist.c_str(),
+                           " title=", meta.title.c_str());
 
         openlyrics::LyricData resolved;
         bool found = coordinator.resolve(meta, resolved);
@@ -1223,34 +1197,10 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         bool found = false;
         if (!onlineSources.empty()) {
             openlyrics::Matcher matcher;
-            // 诊断：输出搜索详情
-            for (auto* src : onlineSources) {
-                if (!src) continue;
-                std::vector<openlyrics::SearchResult> diag;
-                if (src->search(meta, diag)) {
-                    for (auto& r : diag) r.score = matcher.score(meta, r);
-                    std::sort(diag.begin(), diag.end(),
-                              [](const openlyrics::SearchResult& a, const openlyrics::SearchResult& b) {
-                                  return a.score > b.score;
-                              });
-                    int topN = std::min((int)diag.size(), 3);
-                    for (int i = 0; i < topN; ++i) {
-                        auto& r = diag[i];
-                        FB2K_console_print("foo_openlyrics desk-re: [", openlyrics::sourceDisplayName(src->sourceId()),
-                                           "] #", std::to_string(i+1).c_str(),
-                                           " id=", r.id.c_str(),
-                                           " title='", r.trackName.c_str(), "'",
-                                           " artist='", r.artistName.c_str(), "'",
-                                           " score=", std::to_string(r.score).c_str());
-                    }
-                } else {
-                    FB2K_console_print("foo_openlyrics desk-re: [", openlyrics::sourceDisplayName(src->sourceId()),
-                                       "] search=EMPTY");
-                }
-            }
             openlyrics::SearchCoordinator coordinator(onlineSources, matcher);
             found = coordinator.resolve(meta, data);
-            FB2K_console_print("foo_openlyrics desk-re: resolve=", found ? "OK" : "FAIL");
+            FB2K_console_print("foo_openlyrics desk-re: key=", key.c_str(),
+                               " resolve=", found ? "OK" : "FAIL");
         }
 
         std::string savedPath;
