@@ -1205,12 +1205,8 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         openlyrics::Matcher matcher;
         openlyrics::SearchCoordinator coordinator(&localPipeline, onlineSources, matcher);
 
-        FB2K_console_print("foo_openlyrics desk: resolve artist=", meta.artist.c_str(),
-                           " title=", meta.title.c_str());
-
         openlyrics::LyricData resolved;
         bool found = coordinator.resolve(meta, resolved);
-        FB2K_console_print("foo_openlyrics desk: resolve=", found ? "OK" : "FAIL");
         std::string lyricPath;
         if (found) {
             // 反查匹配源以确定 lyricPath
@@ -1291,8 +1287,6 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
             openlyrics::Matcher matcher;
             openlyrics::SearchCoordinator coordinator(onlineSources, matcher);
             found = coordinator.resolve(meta, data);
-            FB2K_console_print("foo_openlyrics desk-re: key=", key.c_str(),
-                               " resolve=", found ? "OK" : "FAIL");
         }
 
         std::string savedPath;

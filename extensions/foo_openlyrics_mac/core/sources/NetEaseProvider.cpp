@@ -72,35 +72,31 @@ NetEaseProvider::NetEaseProvider(HttpClient& http, CryptoPort& crypto)
     : http_(http), crypto_(crypto) {}
 
 NetEaseProvider::WeapiResult NetEaseProvider::weapiEncrypt(const std::string& json) {
-    WeapiResult result;  // 默认空 → 调用方判空可探错
+    WeapiResult result;
 
     std::string presetKey(kPresetKey, 16);
     std::string iv(kIv, 16);
 
-    // 第一层 AES-128-CBC：用 presetKey 加密 JSON。
     std::string step1 = crypto_.aes128CbcEncrypt(json, presetKey, iv);
-    if (step1.empty()) { lastDiag = "weapi: AES step1 failed"; return result; }
+    if (step1.empty()) return result;
 
-    // 第二层 AES-128-CBC：用随机 key 加密 step1 结果。
     std::string secretKey = randomKey16();
     std::string step2 = crypto_.aes128CbcEncrypt(step1, secretKey, iv);
-    if (step2.empty()) { lastDiag = "weapi: AES step2 failed"; return result; }
+    if (step2.empty()) return result;
 
     result.params = base64Encode(step2);
 
-    // RSA 裸加密：secretKey 反转后加密，返回 256 字符 hex。
     std::string modulusHex(kModulusHex);
     std::string exponentHex(kExponentHex);
     result.encSecKey = crypto_.rsaRawEncrypt(reverse(secretKey), modulusHex, exponentHex);
-    if (result.encSecKey.empty()) { lastDiag = "weapi: RSA encrypt failed"; return result; }
+    if (result.encSecKey.empty()) return result;
 
     return result;
 }
 
 std::string NetEaseProvider::weapiPost(const std::string& url, const std::string& json) {
-    lastDiag.clear();
     WeapiResult w = weapiEncrypt(json);
-    if (w.params.empty() || w.encSecKey.empty()) return {};  // lastDiag set by weapiEncrypt
+    if (w.params.empty() || w.encSecKey.empty()) return {};
 
     // 组装 URL-encoded form body。
     std::string body = "params=" + urlEncodeComponent(w.params) +
@@ -112,14 +108,7 @@ std::string NetEaseProvider::weapiPost(const std::string& url, const std::string
     };
 
     HttpResponse r = http_.post(url, body, headers);
-    if (r.status != 200) {
-        lastDiag = "weapi: HTTP status=" + std::to_string(r.status) + " bodyLen=" + std::to_string(r.body.size());
-        return {};
-    }
-    if (r.body.empty()) {
-        lastDiag = "weapi: HTTP 200 but body empty (len=" + std::to_string(body.size()) + " paramsLen=" + std::to_string(w.params.size()) + " encLen=" + std::to_string(w.encSecKey.size()) + ")";
-        return {};
-    }
+    if (r.status != 200) return {};
     return r.body;
 }
 
@@ -183,30 +172,17 @@ bool NetEaseProvider::extractSongs(const std::string& json,
 bool NetEaseProvider::search(const TrackMeta& track, std::vector<SearchResult>& out) {
     if (track.title.empty()) return false;
 
-    lastDiag.clear();
     auto tryQuery = [&](const std::string& query) {
         std::string searchJson =
             "{\"s\":\"" + query +
             "\",\"type\":1,\"offset\":0,\"limit\":5}";
         std::string searchResp = weapiPost(kSearchUrl, searchJson);
-        if (searchResp.empty()) {
-            if (lastDiag.empty()) lastDiag = "weapi: POST returned empty (HTTP/encrypt fail)";
-            return false;
-        }
+        if (searchResp.empty()) return false;
 
         int64_t code = 0;
-        if (!jsonGetInt(searchResp, "code", code)) {
-            lastDiag = "weapi: search response missing code field";
-            return false;
-        }
-        if (code != 200) {
-            lastDiag = "weapi: search response code=" + std::to_string(code);
-            return false;
-        }
+        if (!jsonGetInt(searchResp, "code", code) || code != 200) return false;
 
-        bool ok = extractSongs(searchResp, out, 5);
-        if (!ok) lastDiag = "weapi: extractSongs returned false (songs array empty/missing)";
-        return ok;
+        return extractSongs(searchResp, out, 5);
     };
 
     std::string fullQuery = track.artist.empty() ? track.title

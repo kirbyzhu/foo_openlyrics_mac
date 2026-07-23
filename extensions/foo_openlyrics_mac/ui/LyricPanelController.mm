@@ -345,43 +345,6 @@ static const double kOffsetMax = 30.0;
         track.title = query.UTF8String;
         track.artist = query.UTF8String;
 
-        // 逐个源诊断搜索
-        for (auto* src : onlineSources) {
-            openlyrics::HttpAdapter diagHttp;
-            openlyrics::CryptoAdapter diagCrypto;
-            std::vector<openlyrics::SearchResult> diag;
-            bool ok = false;
-            std::string lastErr;
-            if (src->sourceId() == openlyrics::SourceId::LrcLib) {
-                openlyrics::LrcLibProvider p(diagHttp);
-                ok = p.search(track, diag);
-            } else if (src->sourceId() == openlyrics::SourceId::NetEase) {
-                openlyrics::NetEaseProvider p(diagHttp, diagCrypto);
-                ok = p.search(track, diag);
-                lastErr = p.lastDiag;
-            } else if (src->sourceId() == openlyrics::SourceId::QQMusic) {
-                openlyrics::QQMusicProvider p(diagHttp, diagCrypto);
-                ok = p.search(track, diag);
-                lastErr = p.lastDiag;
-            }
-            FB2K_console_print("foo_openlyrics diag: src=",
-                               openlyrics::sourceDisplayName(src->sourceId()),
-                               " ok=", ok ? "YES" : "NO",
-                               " hits=", std::to_string(diag.size()).c_str(),
-                               " http=", std::to_string(diagHttp.lastStatus).c_str(),
-                               " err=", lastErr.c_str());
-            if (!lastErr.empty()) {
-                FB2K_console_print("  body=", diagHttp.lastBodyPrefix.c_str());
-            }
-            if (!diag.empty()) {
-                for (size_t i = 0; i < diag.size() && i < 3; ++i) {
-                    FB2K_console_print("  #", std::to_string(i+1).c_str(),
-                                       " id=", diag[i].id.c_str(),
-                                       " title=", diag[i].trackName.c_str());
-                }
-            }
-        }
-
         openlyrics::SearchCoordinator coordinator(onlineSources, matcher);
         auto groups = coordinator.searchAll(track);
 
@@ -479,14 +442,9 @@ static const double kOffsetMax = 30.0;
         openlyrics::LyricData data;
         bool ok = false;
 
-        FB2K_console_print("foo_openlyrics panel: fetchById src=",
-                           openlyrics::sourceDisplayName(sid),
-                           " id=", lyricId.UTF8String);
-
         if (sid == openlyrics::SourceId::LrcLib) {
             openlyrics::LrcLibProvider provider(http);
             ok = provider.fetchById(lyricId.UTF8String, data);
-            // ID 端点不可用时回退到命名查询
             if (!ok) {
                 NSString *candTitle = item[@"trackName"];
                 NSString *candArtist = item[@"artistName"];
@@ -496,7 +454,6 @@ static const double kOffsetMax = 30.0;
                     fm.artist = candArtist.UTF8String ?: "";
                     fm.lengthMs = [item[@"durationSec"] intValue] * 1000LL;
                     ok = provider.fetch(fm, data);
-                    FB2K_console_print("foo_openlyrics panel: fallback fetch result=", ok ? "OK" : "FAIL");
                 }
             }
         } else if (sid == openlyrics::SourceId::NetEase) {
@@ -506,8 +463,6 @@ static const double kOffsetMax = 30.0;
             openlyrics::QQMusicProvider provider(http, crypto);
             ok = provider.fetchById(lyricId.UTF8String, data);
         }
-
-        FB2K_console_print("foo_openlyrics panel: fetchById result=", ok ? "OK" : "FAIL");
 
         if (!ok) {
             dispatch_async(dispatch_get_main_queue(), ^{

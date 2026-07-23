@@ -100,10 +100,6 @@ HttpResponse HttpAdapter::get(const std::string& url,
         if (bodyData != nil) {
             response.body = std::string(reinterpret_cast<const char*>(bodyData.bytes), bodyData.length);
         }
-        lastUrl = url;
-        lastStatus = response.status;
-        lastBodyLen = response.body.size();
-        lastBodyPrefix = response.body.substr(0, 200);
     }
 
     return response;
@@ -175,10 +171,6 @@ HttpResponse HttpAdapter::post(const std::string& url,
         if (bodyData != nil) {
             response.body = std::string(reinterpret_cast<const char*>(bodyData.bytes), bodyData.length);
         }
-        lastUrl = url;
-        lastStatus = response.status;
-        lastBodyLen = response.body.size();
-        lastBodyPrefix = response.body.substr(0, 200);
     }
 
     return response;

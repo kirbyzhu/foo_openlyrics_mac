@@ -33,7 +33,6 @@ QQMusicProvider::QQMusicProvider(HttpClient& http, CryptoPort& crypto)
 bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& out) {
     if (track.title.empty()) return false;
 
-    lastDiag.clear();
     auto tryQuery = [&](const std::string& query) {
         std::string searchUrl = std::string(kSearchUrl) +
                                 "?w=" + urlEncodeComponent(query) +
@@ -44,24 +43,12 @@ bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
         };
 
         HttpResponse searchResp = http_.get(searchUrl, headers);
-        if (searchResp.status != 200) {
-            lastDiag = "HTTP status=" + std::to_string(searchResp.status);
-            return false;
-        }
+        if (searchResp.status != 200) return false;
 
         int64_t code = 0;
-        if (!jsonGetInt(searchResp.body, "code", code)) {
-            lastDiag = "response missing code field";
-            return false;
-        }
-        if (code != 0) {
-            lastDiag = "response code=" + std::to_string(code);
-            return false;
-        }
+        if (!jsonGetInt(searchResp.body, "code", code) || code != 0) return false;
 
-        bool ok = extractSongList(searchResp.body, out, 5);
-        if (!ok) lastDiag = "extractSongList: list array empty or missing";
-        return ok;
+        return extractSongList(searchResp.body, out, 5);
     };
 
     std::string fullQuery = track.artist.empty() ? track.title

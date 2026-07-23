@@ -15,9 +15,6 @@ public:
     bool fetchById(const std::string& id, LyricData& out) override;
     SourceId sourceId() const override { return SourceId::QQMusic; }
 
-    // 诊断：最近一次 search()/fetchById() 的失败原因
-    std::string lastDiag;
-
 private:
     // 从搜索响应 JSON 中解析 data.song.list[] 数组
     bool extractSongList(const std::string& json, std::vector<SearchResult>& out, int limit);
