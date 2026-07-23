@@ -2,6 +2,7 @@
 // foo_openlyrics_mac —— Plan 2 Task 3：PlaybackHub 单例实现 + play_callback_static 桥接。
 #import "PlaybackBridge.h"
 #import "stdafx.h"
+#import "DesktopLyricsController.h"
 
 #include <string>
 
@@ -209,6 +210,13 @@ public:
     void on_playback_starting(play_control::t_track_command, bool) override {}
 
     void on_playback_new_track(metadb_handle_ptr p_track) override {
+        static bool s_deskLyricsInited = false;
+        if (!s_deskLyricsInited) {
+            s_deskLyricsInited = true;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [[DesktopLyricsController sharedController] start];
+            });
+        }
         TrackMeta meta = MakeTrackMeta(p_track);
         [[PlaybackHub sharedHub] handleNewTrack:meta positionMs:CurrentPositionMs()];
     }
