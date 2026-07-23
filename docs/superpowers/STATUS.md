@@ -50,11 +50,16 @@ cmake --build build --target foo_openlyrics && bash Scripts/install-component.sh
 ### 计划六 内置编辑器 + 配置页（`docs/superpowers/plans/2026-07-22-plan6-editor-config.md`）
 `AppConfig` 纯 C++ 配置模型 + JSON 序列化、`ConfigAdapter`（NSUserDefaults 持久化）、`preferences_page_v4`（数据源/显示/高级三 tab，拖拽排序）、NSTextView 编辑模式（LrcParser 回解析 + forceSave）、`LyricView::applyDisplayConfig`（字体/颜色/对齐/行距）、HttpAdapter 全局可配超时、defaultOffsetMs 自动生效。134/134 核心测试，2 个提交合入 main。
 
+### 计划七 桌面歌词（`docs/superpowers/plans/2026-07-23-plan7-desktop-lyrics.md`）
+`DeskLyricsConfig` 配置模型 + JSON 序列化、`DesktopLyricsController`（NSPanel 浮动透明窗口 + 独立搜索管线 + 60ms 同步 tick + 前后台自动显隐）、偏好设置页"桌面歌词"tab（启用/仅后台/字号/颜色/对齐/行距）、`LyricView` 透明背景与 stopAnimation 支持。138/138 核心测试，4 个提交合入 main。
+
+**待人工验证：** foobar2000 后台播放时桌面歌词窗口浮现、切回前台自动隐藏、拖拽移动、字号颜色配置即时生效。
+
 ## 四、后续路线图
 
-计划一至六均已完成。后续迭代方向：
-- **计划七（待定）**：逐字高亮（word-level syllables）、翻译/双语歌词并排显示、Mini 模式（单行紧凑面板）。
-- **计划八（待定）**：Spotify/Apple Music 等流媒体源、Last.fm scrobbling 回调、歌词社区贡献上传。
+计划一至七均已完成。后续迭代方向：
+- **计划八（待定）**：逐字高亮（word-level syllables）、翻译/双语歌词并排显示、Mini 模式（单行紧凑面板）。
+- **计划九（待定）**：Spotify/Apple Music 等流媒体源、Last.fm scrobbling 回调、歌词社区贡献上传。
 
 ## 五、遗留 Minor 待办（非阻塞，可顺手清）
 
