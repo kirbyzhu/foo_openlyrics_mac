@@ -16,6 +16,8 @@
 #include "sources/NetEaseProvider.h"
 #include "sources/QQMusicProvider.h"
 #include "pipeline/SearchPipeline.h"
+#include "pipeline/SearchCoordinator.h"
+#include "matching/Matcher.h"
 #include "store/LyricStore.h"
 #include "sync/SyncEngine.h"
 #include "parser/LrcParser.h"
@@ -1091,59 +1093,54 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         openlyrics::FileSystemAdapter fsAdapter;
         openlyrics::TagSource tagSource(tagAdapter);
         openlyrics::LocalFileSource localSource(fsAdapter);
-        openlyrics::SearchPipeline pipeline({&tagSource, &localSource});
+        openlyrics::SearchPipeline localPipeline({&tagSource, &localSource});
+
+        // 构建在线源列表
+        std::vector<openlyrics::LyricSource*> onlineSources;
+        openlyrics::HttpAdapter http;
+        openlyrics::CryptoAdapter crypto;
+        openlyrics::LrcLibProvider lrcLib(http);
+        openlyrics::NetEaseProvider netease(http, crypto);
+        openlyrics::QQMusicProvider qqmusic(http, crypto);
+
+        for (const auto& src : config.sources) {
+            if (!src.enabled) continue;
+            if (src.key == "lrclib") onlineSources.push_back(&lrcLib);
+            else if (src.key == "netease") onlineSources.push_back(&netease);
+            else if (src.key == "qqmusic") onlineSources.push_back(&qqmusic);
+        }
+
+        openlyrics::Matcher matcher;
+        openlyrics::SearchCoordinator coordinator(&localPipeline, onlineSources, matcher);
 
         openlyrics::LyricData resolved;
-        bool found = pipeline.resolve(meta, resolved);
-        bool onlineSaved = false;
-        // 当前歌词来源的本地文件路径：本地文件命中→真实文件；在线抓取并落盘→同名 .lrc；
-        // 内嵌标签命中→保持空（无独立文件可删）。
+        bool found = coordinator.resolve(meta, resolved);
         std::string lyricPath;
         if (found) {
+            // 反查匹配源以确定 lyricPath
             openlyrics::LyricData tagProbe;
-            if (!tagSource.fetch(meta, tagProbe)) {
-                localSource.resolvePath(meta, lyricPath);
+            if (tagSource.fetch(meta, tagProbe)) {
+                // 内嵌标签命中，无独立文件可删
+            } else if (localSource.resolvePath(meta, lyricPath)) {
+                // 本地文件命中
+            } else {
+                // 在线命中 → 落盘
+                openlyrics::LyricStore store(fsAdapter);
+                if (store.save(meta, resolved)) {
+                    lyricPath = openlyrics::LocalFileSource::stripExtension(meta.path) + ".lrc";
+                }
             }
         }
 
-        if (!found) {
-            auto trySource = [&](auto& provider, int& failures) -> bool {
-                if (failures >= maxFail) return false;
-                openlyrics::LyricData data;
-                if (provider.fetch(meta, data)) {
-                    resolved = data; found = true; failures = 0;
-                    openlyrics::LyricStore store(fsAdapter);
-                    onlineSaved = store.save(meta, data);
-                    if (onlineSaved) {
-                        lyricPath = openlyrics::LocalFileSource::stripExtension(meta.path) + ".lrc";
-                    }
-                    return true;
-                }
-                ++failures;
-                return false;
-            };
-
-            for (const auto& src : config.sources) {
-                if (found) break;
-                if (!src.enabled) continue;
-                if (src.key == "tag" || src.key == "local") continue;
-
-                if (src.key == "lrclib") {
-                    openlyrics::HttpAdapter http;
-                    openlyrics::LrcLibProvider lrcLib(http);
-                    trySource(lrcLib, lrclibFails);
-                } else if (src.key == "netease") {
-                    openlyrics::HttpAdapter http;
-                    openlyrics::CryptoAdapter crypto;
-                    openlyrics::NetEaseProvider netease(http, crypto);
-                    trySource(netease, neteaseFails);
-                } else if (src.key == "qqmusic") {
-                    openlyrics::HttpAdapter http;
-                    openlyrics::CryptoAdapter crypto;
-                    openlyrics::QQMusicProvider qqmusic(http, crypto);
-                    trySource(qqmusic, qqmusicFails);
-                }
-            }
+        // 更新失效计数
+        if (found) {
+            lrclibFails = 0;
+            neteaseFails = 0;
+            qqmusicFails = 0;
+        } else {
+            if (lrclibFails < maxFail) lrclibFails++;
+            if (neteaseFails < maxFail) neteaseFails++;
+            if (qqmusicFails < maxFail) qqmusicFails++;
         }
 
         if (!found) resolved = openlyrics::LyricData{};
@@ -1181,22 +1178,23 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 
     __weak __typeof__(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        openlyrics::HttpAdapter http;
+        openlyrics::CryptoAdapter crypto;
+        openlyrics::LrcLibProvider lrcLib(http);
+        openlyrics::NetEaseProvider netease(http, crypto);
+        openlyrics::QQMusicProvider qqmusic(http, crypto);
+
+        std::vector<openlyrics::LyricSource*> onlineSources;
+        if (key == "lrclib") onlineSources.push_back(&lrcLib);
+        else if (key == "netease") onlineSources.push_back(&netease);
+        else if (key == "qqmusic") onlineSources.push_back(&qqmusic);
+
         openlyrics::LyricData data;
         bool found = false;
-        if (key == "lrclib") {
-            openlyrics::HttpAdapter http;
-            openlyrics::LrcLibProvider lrcLib(http);
-            found = lrcLib.fetch(meta, data);
-        } else if (key == "netease") {
-            openlyrics::HttpAdapter http;
-            openlyrics::CryptoAdapter crypto;
-            openlyrics::NetEaseProvider netease(http, crypto);
-            found = netease.fetch(meta, data);
-        } else if (key == "qqmusic") {
-            openlyrics::HttpAdapter http;
-            openlyrics::CryptoAdapter crypto;
-            openlyrics::QQMusicProvider qqmusic(http, crypto);
-            found = qqmusic.fetch(meta, data);
+        if (!onlineSources.empty()) {
+            openlyrics::Matcher matcher;
+            openlyrics::SearchCoordinator coordinator(onlineSources, matcher);
+            found = coordinator.resolve(meta, data);
         }
 
         std::string savedPath;
