@@ -3,6 +3,7 @@
 
 #include "config/AppConfig.h"
 #include "ConfigAdapter.h"
+#import "DesktopLyricsController.h"
 
 static NSString *const kDragDropType = @"foo_openlyrics.source_row";
 
@@ -22,6 +23,16 @@ static NSString *const kDragDropType = @"foo_openlyrics.source_row";
 @property(nonatomic, strong) NSTextField *httpTimeoutField;
 @property(nonatomic, strong) NSTextField *maxFailuresField;
 @property(nonatomic, strong) NSPopUpButton *logLevelPopup;
+
+// 桌面歌词
+@property(nonatomic, strong) NSButton *deskEnabledCheck;
+@property(nonatomic, strong) NSButton *deskBackgroundCheck;
+@property(nonatomic, strong) NSTextField *deskFontSizeField;
+@property(nonatomic, strong) NSColorWell *deskNormalColorWell;
+@property(nonatomic, strong) NSColorWell *deskHighlightColorWell;
+@property(nonatomic, strong) NSPopUpButton *deskAlignmentPopup;
+@property(nonatomic, strong) NSSlider *deskLineSpacingSlider;
+@property(nonatomic, strong) NSTextField *deskLineSpacingLabel;
 @end
 
 @implementation PreferencesViewController
@@ -36,6 +47,7 @@ static NSString *const kDragDropType = @"foo_openlyrics.source_row";
     [tabs addTabViewItem:[self sourcesTab]];
     [tabs addTabViewItem:[self displayTab]];
     [tabs addTabViewItem:[self advancedTab]];
+    [tabs addTabViewItem:[self deskLyricsTab]];
 
     [self.view addSubview:tabs];
     [NSLayoutConstraint activateConstraints:@[
@@ -277,6 +289,138 @@ static NSString *const kDragDropType = @"foo_openlyrics.source_row";
     return item;
 }
 
+#pragma mark - Desktop Lyrics Tab
+
+- (NSTabViewItem *)deskLyricsTab {
+    NSTabViewItem *item = [[NSTabViewItem alloc] initWithIdentifier:@"deskLyrics"];
+    item.label = @"桌面歌词";
+
+    NSView *v = [[NSView alloc] initWithFrame:NSZeroRect];
+    NSView *lastRow = nil;
+
+    auto addGridRow = [&](NSView *label, NSView *control) {
+        NSGridView *row = [NSGridView gridViewWithViews:@[@[label, control]]];
+        row.translatesAutoresizingMaskIntoConstraints = NO;
+        row.columnSpacing = 12;
+        [v addSubview:row];
+        [NSLayoutConstraint activateConstraints:@[
+            [row.leadingAnchor constraintEqualToAnchor:v.leadingAnchor constant:16],
+            [row.trailingAnchor constraintLessThanOrEqualToAnchor:v.trailingAnchor constant:-16],
+            lastRow ? [row.topAnchor constraintEqualToAnchor:lastRow.bottomAnchor constant:10]
+                    : [row.topAnchor constraintEqualToAnchor:v.topAnchor constant:16],
+        ]];
+        lastRow = row;
+        return row;
+    };
+
+    // 启用
+    NSButton *enabledCheck = [NSButton checkboxWithTitle:@"启用桌面歌词" target:self action:@selector(deskEnabledChanged:)];
+    self.deskEnabledCheck = enabledCheck;
+    addGridRow([NSTextField labelWithString:@""], enabledCheck);
+
+    // 仅后台显示
+    NSButton *bgCheck = [NSButton checkboxWithTitle:@"仅 foobar2000 后台时显示" target:self action:@selector(deskBackgroundChanged:)];
+    self.deskBackgroundCheck = bgCheck;
+    addGridRow([NSTextField labelWithString:@""], bgCheck);
+
+    // 字号
+    NSTextField *fontSizeF = [[NSTextField alloc] initWithFrame:NSZeroRect];
+    fontSizeF.controlSize = NSControlSizeSmall;
+    fontSizeF.target = self;
+    fontSizeF.action = @selector(deskFontSizeChanged:);
+    self.deskFontSizeField = fontSizeF;
+    addGridRow([NSTextField labelWithString:@"字号："], fontSizeF);
+
+    // 常规色
+    NSColorWell *normalWell = [NSColorWell new];
+    normalWell.target = self;
+    normalWell.action = @selector(deskColorChanged:);
+    self.deskNormalColorWell = normalWell;
+    addGridRow([NSTextField labelWithString:@"常规色："], normalWell);
+
+    // 高亮色
+    NSColorWell *hlWell = [NSColorWell new];
+    hlWell.target = self;
+    hlWell.action = @selector(deskColorChanged:);
+    self.deskHighlightColorWell = hlWell;
+    addGridRow([NSTextField labelWithString:@"高亮色："], hlWell);
+
+    // 对齐
+    NSPopUpButton *alignPop = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [alignPop addItemsWithTitles:@[@"居中", @"左对齐", @"右对齐"]];
+    alignPop.target = self;
+    alignPop.action = @selector(deskAlignmentChanged:);
+    self.deskAlignmentPopup = alignPop;
+    addGridRow([NSTextField labelWithString:@"对齐："], alignPop);
+
+    // 行距
+    NSSlider *spSlider = [[NSSlider alloc] initWithFrame:NSZeroRect];
+    spSlider.minValue = 0;
+    spSlider.maxValue = 20;
+    spSlider.target = self;
+    spSlider.action = @selector(deskLineSpacingChanged:);
+    self.deskLineSpacingSlider = spSlider;
+
+    NSTextField *spLbl = [NSTextField labelWithString:@"0"];
+    self.deskLineSpacingLabel = spLbl;
+
+    NSView *spRow = [[NSView alloc] initWithFrame:NSZeroRect];
+    spSlider.translatesAutoresizingMaskIntoConstraints = NO;
+    spLbl.translatesAutoresizingMaskIntoConstraints = NO;
+    [spRow addSubview:spSlider];
+    [spRow addSubview:spLbl];
+    [NSLayoutConstraint activateConstraints:@[
+        [spSlider.leadingAnchor constraintEqualToAnchor:spRow.leadingAnchor],
+        [spSlider.centerYAnchor constraintEqualToAnchor:spRow.centerYAnchor],
+        [spSlider.widthAnchor constraintEqualToConstant:160],
+        [spLbl.leadingAnchor constraintEqualToAnchor:spSlider.trailingAnchor constant:8],
+        [spLbl.centerYAnchor constraintEqualToAnchor:spRow.centerYAnchor],
+        [spRow.heightAnchor constraintEqualToConstant:24],
+    ]];
+    addGridRow([NSTextField labelWithString:@"行距："], spRow);
+
+    item.view = v;
+    return item;
+}
+
+#pragma mark - Desktop Lyrics actions
+
+- (void)deskEnabledChanged:(NSButton *)sender {
+    _config.deskLyrics.enabled = (sender.state == NSControlStateValueOn);
+    [self saveConfig];
+}
+
+- (void)deskBackgroundChanged:(NSButton *)sender {
+    _config.deskLyrics.showOnlyInBackground = (sender.state == NSControlStateValueOn);
+    [self saveConfig];
+}
+
+- (void)deskFontSizeChanged:(NSTextField *)sender {
+    double v = [sender.stringValue doubleValue];
+    if (v >= 8 && v <= 120) _config.deskLyrics.fontSize = v;
+    [self saveConfig];
+}
+
+- (void)deskColorChanged:(NSColorWell *)sender {
+    if (sender == _deskNormalColorWell)
+        _config.deskLyrics.normalColor = [self hexFromColor:_deskNormalColorWell.color].UTF8String;
+    else
+        _config.deskLyrics.highlightColor = [self hexFromColor:_deskHighlightColorWell.color].UTF8String;
+    [self saveConfig];
+}
+
+- (void)deskAlignmentChanged:(NSPopUpButton *)sender {
+    NSInteger idx = sender.indexOfSelectedItem;
+    _config.deskLyrics.alignment = (idx == 1) ? "left" : (idx == 2) ? "right" : "center";
+    [self saveConfig];
+}
+
+- (void)deskLineSpacingChanged:(NSSlider *)sender {
+    _config.deskLyrics.lineSpacing = sender.doubleValue;
+    _deskLineSpacingLabel.stringValue = [NSString stringWithFormat:@"%.0f", sender.doubleValue];
+    [self saveConfig];
+}
+
 #pragma mark - Populate from config
 
 - (void)viewWillAppear {
@@ -311,6 +455,21 @@ static NSString *const kDragDropType = @"foo_openlyrics.source_row";
     else if (c.logLevel == "warn") logIdx = 2;
     else if (c.logLevel == "error") logIdx = 3;
     [_logLevelPopup selectItemAtIndex:logIdx];
+
+    const auto& dl = c.deskLyrics;
+    _deskEnabledCheck.state = dl.enabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _deskBackgroundCheck.state = dl.showOnlyInBackground ? NSControlStateValueOn : NSControlStateValueOff;
+    _deskFontSizeField.stringValue = [NSString stringWithFormat:@"%.0f", dl.fontSize];
+    _deskNormalColorWell.color = [self colorFromHex:dl.normalColor];
+    _deskHighlightColorWell.color = [self colorFromHex:dl.highlightColor];
+
+    NSInteger dlAlign = 0;
+    if (dl.alignment == "left") dlAlign = 1;
+    else if (dl.alignment == "right") dlAlign = 2;
+    [_deskAlignmentPopup selectItemAtIndex:dlAlign];
+
+    _deskLineSpacingSlider.doubleValue = dl.lineSpacing;
+    _deskLineSpacingLabel.stringValue = [NSString stringWithFormat:@"%.0f", dl.lineSpacing];
 }
 
 #pragma mark - NSTableViewDataSource / Delegate (Sources tab)
@@ -467,6 +626,7 @@ static NSString *const kDragDropType = @"foo_openlyrics.source_row";
 
 - (void)saveConfig {
     openlyrics::ConfigAdapter().save(_config);
+    [[DesktopLyricsController sharedController] reloadConfig];
     FB2K_console_print("foo_openlyrics: config saved");
 }
 
