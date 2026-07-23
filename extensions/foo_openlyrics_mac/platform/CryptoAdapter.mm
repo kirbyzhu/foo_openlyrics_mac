@@ -108,13 +108,8 @@ struct BnCtx {
     ~BnCtx() { if (m) dlclose(m); }
     bool load() {
         if (m) return true;
-        // 系统路径优先；Homebrew 路径回退
-        m = dlopen("/usr/lib/libcrypto.dylib", RTLD_LAZY);
-        if (!m) m = dlopen("/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib", RTLD_LAZY);
-        if (!m) {
-            // dlsym 直接试系统路径
-            m = dlopen("/usr/lib/libcrypto.dylib", RTLD_NOW);
-        }
+        // macOS /usr/lib/libcrypto.dylib 禁止 dlopen（非稳定 ABI），只用 Homebrew 版号路径。
+        m = dlopen("/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib", RTLD_LAZY);
         return m != nullptr;
     }
     void* sym(const char* name) {
