@@ -1112,6 +1112,45 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     [self handleTrackChanged];
 }
 
+- (void)playbackHubLyricDidChange {
+    // 主面板偏移/歌词变更后从本地文件重新加载
+    if (!_started || !_config.deskLyrics.enabled) return;
+    PlaybackHub *hub = [PlaybackHub sharedHub];
+    if (![hub hasTrack]) return;
+
+    openlyrics::TrackMeta meta = [hub currentTrack];
+    __weak __typeof__(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        openlyrics::TagIOAdapter tagAdapter;
+        openlyrics::FileSystemAdapter fsAdapter;
+        openlyrics::TagSource tagSource(tagAdapter);
+        openlyrics::LocalFileSource localSource(fsAdapter);
+        openlyrics::SearchPipeline localPipeline({&tagSource, &localSource});
+
+        openlyrics::LyricData resolved;
+        bool found = localPipeline.resolve(meta, resolved);
+        std::string lyricPath;
+        if (found) {
+            openlyrics::LyricData tagProbe;
+            if (tagSource.fetch(meta, tagProbe)) {
+                // tag 命中，无文件路径
+            } else if (localSource.resolvePath(meta, lyricPath)) {
+                // 本地文件命中
+            }
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __typeof__(self) strongSelf = weakSelf;
+            if (strongSelf == nil) return;
+            strongSelf->_currentLyricData = found ? resolved : openlyrics::LyricData{};
+            strongSelf->_currentExtraOffsetMs = strongSelf->_config.defaultOffsetMs;
+            strongSelf->_currentLyricPath = lyricPath;
+            strongSelf->_contentView.canDeleteLyric = !lyricPath.empty();
+            [strongSelf->_lyricView setLyricData:strongSelf->_currentLyricData];
+        });
+    });
+}
+
 #pragma mark - 曲目切换
 
 - (void)handleTrackChanged {
@@ -1276,6 +1315,8 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
                 strongSelf->_currentLyricPath = savedPath;
                 strongSelf->_contentView.canDeleteLyric = !savedPath.empty();
                 [strongSelf->_lyricView setLyricData:data];
+                // 通知主面板同步新歌词
+                [[PlaybackHub sharedHub] notifyLyricChanged];
             } else {
                 [strongSelf->_contentView showMessage:@"未找到歌词"];
             }
@@ -1300,6 +1341,9 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     _contentView.canDeleteLyric = NO;
     [_lyricView setLyricData:_currentLyricData];
     [_contentView showMessage:ok ? @"已删除歌词文件" : @"删除失败"];
+
+    // 通知主面板同步删除
+    [[PlaybackHub sharedHub] notifyLyricChanged];
 }
 
 #pragma mark - 同步 tick
@@ -1364,6 +1408,9 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
             store.forceSave(meta, dataCopy);
         });
     }
+
+    // 通知主面板同步偏移
+    [[PlaybackHub sharedHub] notifyLyricChanged];
 }
 
 #pragma mark - NSWindowDelegate

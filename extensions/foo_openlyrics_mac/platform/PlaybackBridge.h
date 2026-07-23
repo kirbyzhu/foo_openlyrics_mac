@@ -24,6 +24,10 @@
 // 面板等 UI 组件实现该协议以接收播放状态变化通知（新曲目、停止）；回调固定在主线程触发。
 @protocol PlaybackHubObserving <NSObject>
 - (void)playbackHubDidChange;
+@optional
+// 歌词内容或偏移发生变更（桌面歌词偏移提交/删除文件/重新搜索后触发），
+// 实现者应从磁盘重新加载当前歌词并同步偏移量。
+- (void)playbackHubLyricDidChange;
 @end
 
 @interface PlaybackHub : NSObject
@@ -42,5 +46,9 @@
 
 - (void)addObserver:(id<PlaybackHubObserving>)observer;
 - (void)removeObserver:(id<PlaybackHubObserving>)observer;
+
+// 通知所有观察者歌词内容已变更（桌面歌词偏移提交、删除文件、重新搜索后调用）。
+// 观察者应从本地文件重新加载并同步偏移量。
+- (void)notifyLyricChanged;
 
 @end

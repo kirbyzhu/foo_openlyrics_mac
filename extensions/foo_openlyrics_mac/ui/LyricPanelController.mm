@@ -597,6 +597,9 @@ static const double kOffsetMax = 30.0;
 
     [self.lyricView setLyricData:_currentLyricData];
     [self updateOffsetUI];
+
+    // 通知桌面歌词同步偏移
+    [[PlaybackHub sharedHub] notifyLyricChanged];
 }
 
 - (void)updateOffsetLabel {
@@ -648,6 +651,52 @@ static const double kOffsetMax = 30.0;
 
 - (void)playbackHubDidChange {
     [self handleTrackChanged];
+}
+
+- (void)playbackHubLyricDidChange {
+    // 桌面歌词变更后从本地文件/标签重新加载，不触发在线搜索
+    PlaybackHub *hub = [PlaybackHub sharedHub];
+    if (![hub hasTrack]) return;
+
+    openlyrics::TrackMeta meta = [hub currentTrack];
+    NSString *title = meta.title.empty() ? @"(未知曲目)"
+        : [NSString stringWithUTF8String:meta.title.c_str()];
+
+    // 仅尝试本地源：Tag + LocalFile
+    const NSInteger requestToken = ++self.trackRequestToken;
+    __weak __typeof__(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        openlyrics::TagIOAdapter tagAdapter;
+        openlyrics::FileSystemAdapter fsAdapter;
+        openlyrics::TagSource tagSource(tagAdapter);
+        openlyrics::LocalFileSource localSource(fsAdapter);
+        openlyrics::SearchPipeline localPipeline({&tagSource, &localSource});
+
+        openlyrics::LyricData resolved;
+        bool found = localPipeline.resolve(meta, resolved);
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __typeof__(self) strongSelf = weakSelf;
+            if (strongSelf == nil) return;
+            if (strongSelf.trackRequestToken != requestToken) return;
+
+            if (found) {
+                strongSelf->_currentLyricData = resolved;
+                strongSelf->_currentExtraOffsetMs = 0;
+                strongSelf->_currentSourceLabel = "local";
+                [strongSelf.lyricView setLyricData:resolved];
+                strongSelf.statusLabel.stringValue = title;
+            } else {
+                // 本地文件中无歌词或文件已删除
+                strongSelf->_currentLyricData = openlyrics::LyricData{};
+                strongSelf->_currentExtraOffsetMs = 0;
+                [strongSelf.lyricView setLyricData:strongSelf->_currentLyricData];
+                strongSelf.statusLabel.stringValue =
+                    [NSString stringWithFormat:@"%@ · 未找到歌词", title];
+            }
+            strongSelf.offsetContainer.hidden = resolved.lines.empty();
+        });
+    });
 }
 
 #pragma mark - 曲目切换：动态源管线
