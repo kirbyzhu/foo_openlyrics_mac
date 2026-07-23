@@ -7,6 +7,7 @@
 #include <random>
 #include <set>
 #include <algorithm>
+#include <cstdio>
 
 namespace openlyrics {
 
@@ -98,7 +99,10 @@ NetEaseProvider::WeapiResult NetEaseProvider::weapiEncrypt(const std::string& js
 
 std::string NetEaseProvider::weapiPost(const std::string& url, const std::string& json) {
     WeapiResult w = weapiEncrypt(json);
-    if (w.params.empty() || w.encSecKey.empty()) return {};
+    if (w.params.empty() || w.encSecKey.empty()) {
+        fprintf(stderr, "[NetEase] weapiEncrypt failed\n");
+        return {};
+    }
 
     // 组装 URL-encoded form body。
     std::string body = "params=" + urlEncodeComponent(w.params) +
@@ -110,6 +114,8 @@ std::string NetEaseProvider::weapiPost(const std::string& url, const std::string
     };
 
     HttpResponse r = http_.post(url, body, headers);
+    fprintf(stderr, "[NetEase] POST %s → status=%d bodyLen=%zu\n",
+            url.c_str(), r.status, r.body.size());
     if (r.status != 200) return {};
     return r.body;
 }
@@ -182,9 +188,15 @@ bool NetEaseProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
         if (searchResp.empty()) return false;
 
         int64_t code = 0;
-        if (!jsonGetInt(searchResp, "code", code) || code != 200) return false;
+        if (!jsonGetInt(searchResp, "code", code) || code != 200) {
+            fprintf(stderr, "[NetEase] search response code=%lld (expected 200)\n", (long long)code);
+            return false;
+        }
 
-        return extractSongs(searchResp, out, 5);
+        bool ok = extractSongs(searchResp, out, 5);
+        fprintf(stderr, "[NetEase] extractSongs → %s count=%zu\n",
+                ok ? "OK" : "FAIL", out.size());
+        return ok;
     };
 
     std::string fullQuery = track.artist.empty() ? track.title

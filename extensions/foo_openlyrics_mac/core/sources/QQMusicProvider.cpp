@@ -5,6 +5,7 @@
 #include "parser/LrcParser.h"
 #include <set>
 #include <algorithm>
+#include <cstdio>
 
 namespace openlyrics {
 
@@ -43,12 +44,20 @@ bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
         };
 
         HttpResponse searchResp = http_.get(searchUrl, headers);
+        fprintf(stderr, "[QQMusic] GET %s → status=%d bodyLen=%zu\n",
+                searchUrl.c_str(), searchResp.status, searchResp.body.size());
         if (searchResp.status != 200) return false;
 
         int64_t code = 0;
-        if (!jsonGetInt(searchResp.body, "code", code) || code != 0) return false;
+        if (!jsonGetInt(searchResp.body, "code", code) || code != 0) {
+            fprintf(stderr, "[QQMusic] search response code=%lld (expected 0)\n", (long long)code);
+            return false;
+        }
 
-        return extractSongList(searchResp.body, out, 5);
+        bool ok = extractSongList(searchResp.body, out, 5);
+        fprintf(stderr, "[QQMusic] extractSongList → %s count=%zu\n",
+                ok ? "OK" : "FAIL", out.size());
+        return ok;
     };
 
     std::string fullQuery = track.artist.empty() ? track.title

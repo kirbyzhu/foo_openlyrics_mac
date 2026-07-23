@@ -349,19 +349,14 @@ static const double kOffsetMax = 30.0;
 
         auto groups = coordinator.searchAll(track);
 
-        FB2K_console_print("foo_openlyrics search: query=", query.UTF8String,
-                           " sources=", std::to_string(groups.size()).c_str());
+        // 诊断每个源的结果数量
+        std::string diag = "foo_openlyrics search: ";
+        diag += query.UTF8String;
         for (const auto& g : groups) {
-            FB2K_console_print("foo_openlyrics search:  source=", g.sourceName.c_str(),
-                               " count=", std::to_string(g.items.size()).c_str());
-            for (size_t i = 0; i < g.items.size() && i < 3; ++i) {
-                FB2K_console_print("foo_openlyrics search:   #", std::to_string(i+1).c_str(),
-                                   " id=", g.items[i].id.c_str(),
-                                   " title='", g.items[i].trackName.c_str(), "'",
-                                   " artist='", g.items[i].artistName.c_str(), "'",
-                                   " score=", std::to_string(g.items[i].score).c_str());
-            }
+            diag += " [" + g.sourceName + "=" + std::to_string(g.items.size()) + "]";
         }
+        if (groups.empty()) diag += " ALL_EMPTY";
+        FB2K_console_print(diag.c_str());
 
         static const int kMinScore = 30;  // 手动搜索最低相关度阈值
 
