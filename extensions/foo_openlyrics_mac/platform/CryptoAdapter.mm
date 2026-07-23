@@ -151,6 +151,13 @@ std::string CryptoAdapter::aes128CbcEncrypt(const std::string& plain,
                     plain, key, iv);
 }
 
+std::string CryptoAdapter::aes128EcbEncrypt(const std::string& plain,
+                                              const std::string& key) {
+    return ccCrypt(kEncrypt, kCCAlgorithmAES,
+                   kCCOptionECBMode | kCCOptionPKCS7Padding,
+                   plain, key, "");
+}
+
 std::string CryptoAdapter::rsaRawEncrypt(const std::string& plain,
                                            const std::string& modulusHex,
                                            const std::string& exponentHex) {

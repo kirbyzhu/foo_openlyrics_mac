@@ -29,20 +29,20 @@ public:
         lastUrl = url;
         lastBody = body;
         if (url.find("/search/") != std::string::npos) return searchResp;
-        return lyricResp;
+        if (url.find("/lyric/") != std::string::npos || url.find("/song/") != std::string::npos) return lyricResp;
+        return {};
     }
 };
 
 // FakeCrypto: 记录调用参数并返回预置值。
 class FakeCrypto : public CryptoPort {
 public:
-    struct AesCall {
+    struct AesCbcCall {
         std::string plain;
         std::string key;
         std::string iv;
     };
-
-    std::vector<AesCall> aesCalls;
+    std::vector<AesCbcCall> aesCalls;
     std::string aesResult;
 
     struct RsaCall {
@@ -53,11 +53,28 @@ public:
     RsaCall lastRsaCall;
     std::string rsaResult;
 
+    struct EcbCall {
+        std::string plain;
+        std::string key;
+    };
+    std::vector<EcbCall> ecbCalls;
+    std::string ecbResult;
+
+    std::string md5Result;
+    std::string md5LastInput;
+    bool md5Called = false;
+
     std::string aes128CbcEncrypt(const std::string& plain,
                                   const std::string& key,
                                   const std::string& iv) override {
         aesCalls.push_back({plain, key, iv});
         return aesResult;
+    }
+
+    std::string aes128EcbEncrypt(const std::string& plain,
+                                  const std::string& key) override {
+        ecbCalls.push_back({plain, key});
+        return ecbResult;
     }
 
     std::string rsaRawEncrypt(const std::string& plain,
@@ -70,8 +87,10 @@ public:
     std::string tripleDesEcbDecrypt(const std::string&, const std::string&) override {
         return {};
     }
-    std::string md5Hex(const std::string&) override {
-        return {};
+    std::string md5Hex(const std::string& input) override {
+        md5Called = true;
+        md5LastInput = input;
+        return md5Result;
     }
 };
 
@@ -91,8 +110,8 @@ std::string makeLyricResp(const std::string& lrcText) {
 TEST(NetEaseProvider, FullHit) {
     FakeHttp http;
     FakeCrypto crypto;
-    crypto.aesResult = "\x01";
-    crypto.rsaResult = std::string(256, 'a');
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
 
     http.searchResp.status = 200;
     http.searchResp.body = makeSearchResp(12345);
@@ -127,8 +146,8 @@ TEST(NetEaseProvider, EmptyTitle) {
 TEST(NetEaseProvider, SearchCodeNot200) {
     FakeHttp http;
     FakeCrypto crypto;
-    crypto.aesResult = "\x01";
-    crypto.rsaResult = std::string(256, 'a');
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
 
     http.searchResp.status = 200;
     http.searchResp.body = R"({"code":-1,"message":"error"})";
@@ -146,8 +165,8 @@ TEST(NetEaseProvider, SearchCodeNot200) {
 TEST(NetEaseProvider, SearchHttpError) {
     FakeHttp http;
     FakeCrypto crypto;
-    crypto.aesResult = "\x01";
-    crypto.rsaResult = std::string(256, 'a');
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
 
     http.searchResp.status = 500;
 
@@ -164,8 +183,8 @@ TEST(NetEaseProvider, SearchHttpError) {
 TEST(NetEaseProvider, LyricCodeNot200) {
     FakeHttp http;
     FakeCrypto crypto;
-    crypto.aesResult = "\x01";
-    crypto.rsaResult = std::string(256, 'a');
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
 
     http.searchResp.status = 200;
     http.searchResp.body = makeSearchResp(1);
@@ -185,8 +204,8 @@ TEST(NetEaseProvider, LyricCodeNot200) {
 TEST(NetEaseProvider, NoLyric) {
     FakeHttp http;
     FakeCrypto crypto;
-    crypto.aesResult = "\x01";
-    crypto.rsaResult = std::string(256, 'a');
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
 
     http.searchResp.status = 200;
     http.searchResp.body = makeSearchResp(1);
@@ -202,12 +221,12 @@ TEST(NetEaseProvider, NoLyric) {
     EXPECT_FALSE(provider.fetch(track, out));
 }
 
-// weapi body 包含 params 和 encSecKey。
-TEST(NetEaseProvider, WeapiParamsPresent) {
+// EAPI body 仅含 params=（不含 encSecKey）。
+TEST(NetEaseProvider, EapiBodyIsJustParams) {
     FakeHttp http;
     FakeCrypto crypto;
-    crypto.aesResult = "\xAB\xCD";
-    crypto.rsaResult = std::string(256, 'f');
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
 
     http.searchResp.status = 200;
     http.searchResp.body = makeSearchResp(999);
@@ -222,15 +241,15 @@ TEST(NetEaseProvider, WeapiParamsPresent) {
     provider.fetch(track, out);
 
     EXPECT_NE(http.lastBody.find("params="), std::string::npos);
-    EXPECT_NE(http.lastBody.find("encSecKey="), std::string::npos);
+    EXPECT_EQ(http.lastBody.find("encSecKey"), std::string::npos);
 }
 
-// 双层 AES 加密：第一层用 presetKey。
-TEST(NetEaseProvider, DoubleAesEncryption) {
+// EAPI 加密验证：MD5 输入包含 nobody/api/use/md5forencrypt。
+TEST(NetEaseProvider, EapiEncryptionFlow) {
     FakeHttp http;
     FakeCrypto crypto;
-    crypto.aesResult = "\x01";
-    crypto.rsaResult = std::string(256, '0');
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
 
     http.searchResp.status = 200;
     http.searchResp.body = makeSearchResp(1);
@@ -244,17 +263,20 @@ TEST(NetEaseProvider, DoubleAesEncryption) {
     LyricData out;
     provider.fetch(track, out);
 
-    EXPECT_GE(crypto.aesCalls.size(), 2u);
-    EXPECT_EQ(crypto.aesCalls[0].key, std::string("0CoJUm6Qyw8W8jud", 16));
-    EXPECT_EQ(crypto.aesCalls[0].iv, std::string("0102030405060708", 16));
+    ASSERT_TRUE(crypto.md5Called);
+    EXPECT_NE(crypto.md5LastInput.find("nobody"), std::string::npos);
+    EXPECT_NE(crypto.md5LastInput.find("md5forencrypt"), std::string::npos);
+
+    ASSERT_FALSE(crypto.ecbCalls.empty());
+    EXPECT_EQ(crypto.ecbCalls[0].key, std::string("e82ckenh8dichen8", 16));
 }
 
-// RSA 加密参数校验。
-TEST(NetEaseProvider, RsaParams) {
+// EAPI 搜索 JSON 包含 keyword/scene/header 字段。
+TEST(NetEaseProvider, EapiSearchParamsFormat) {
     FakeHttp http;
     FakeCrypto crypto;
-    crypto.aesResult = "\x01";
-    crypto.rsaResult = std::string(256, '0');
+    crypto.ecbResult = "01";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
 
     http.searchResp.status = 200;
     http.searchResp.body = makeSearchResp(1);
@@ -268,9 +290,10 @@ TEST(NetEaseProvider, RsaParams) {
     LyricData out;
     provider.fetch(track, out);
 
-    ASSERT_FALSE(crypto.lastRsaCall.plain.empty());
-    EXPECT_GE(crypto.lastRsaCall.modulus.size(), 256u);
-    EXPECT_EQ(crypto.lastRsaCall.exponent, "010001");
+    ASSERT_FALSE(crypto.ecbCalls.empty());
+    EXPECT_NE(crypto.ecbCalls[0].plain.find("\"keyword\""), std::string::npos);
+    EXPECT_NE(crypto.ecbCalls[0].plain.find("\"scene\""), std::string::npos);
+    EXPECT_NE(crypto.ecbCalls[0].plain.find("\"header\""), std::string::npos);
 }
 
 // --- search() 测试 ---
@@ -278,8 +301,8 @@ TEST(NetEaseProvider, RsaParams) {
 TEST(NetEaseProvider, SearchReturnsMultipleCandidates) {
     FakeHttp http;
     FakeCrypto crypto;
-    crypto.aesResult = "\x01";
-    crypto.rsaResult = std::string(256, 'a');
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
 
     // 构造含 2 首歌曲的搜索响应
     http.searchResp.status = 200;
@@ -319,8 +342,8 @@ TEST(NetEaseProvider, SearchEmptyTitle) {
 TEST(NetEaseProvider, FetchByIdValid) {
     FakeHttp http;
     FakeCrypto crypto;
-    crypto.aesResult = "\x01";
-    crypto.rsaResult = std::string(256, 'a');
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
 
     // fetchById 只发歌词请求（1 次 POST）
     http.lyricResp.status = 200;
@@ -343,8 +366,8 @@ TEST(NetEaseProvider, FetchByIdEmptyId) {
 TEST(NetEaseProvider, FetchByIdNoLyric) {
     FakeHttp http;
     FakeCrypto crypto;
-    crypto.aesResult = "\x01";
-    crypto.rsaResult = std::string(256, 'a');
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
 
     http.lyricResp.status = 200;
     http.lyricResp.body = R"({"code":200,"nolyric":true})";
@@ -359,8 +382,8 @@ TEST(NetEaseProvider, FetchByIdNoLyric) {
 TEST(NetEaseProvider, FetchUsesDefaultImpl) {
     FakeHttp http;
     FakeCrypto crypto;
-    crypto.aesResult = "\x01";
-    crypto.rsaResult = std::string(256, 'a');
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
 
     // search 成功 + fetchById 成功
     http.searchResp.status = 200;

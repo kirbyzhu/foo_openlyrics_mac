@@ -1,10 +1,8 @@
 #include "NetEaseProvider.h"
-#include "net/Base64.h"
 #include "net/JsonField.h"
 #include "net/UrlEncode.h"
 #include "parser/LrcParser.h"
 
-#include <random>
 #include <set>
 #include <algorithm>
 
@@ -12,36 +10,21 @@ namespace openlyrics {
 
 namespace {
 
-const char* const kPresetKey = "0CoJUm6Qyw8W8jud";         // 16 字节
-const char* const kIv = "0102030405060708";                 // 16 字节 ASCII
-const char* const kModulusHex =
-    "00e0b509f6259df8642dbc35662901477df22677ec152b5ff68ace615bb7b7251"
-    "52b3ab17a876aea8a5aa76d2e417629ec4ee341f56135fccf695280104e0312ec"
-    "bda92557c93870114af6c9d05c4f7f0c3685b7a46bee255932575cce10b424d8"
-    "13cfe4875d3e82047b97ddef52741d546b8e289dc6935b3ece0462db0a22b8e7";
-const char* const kExponentHex = "010001";
-const char* const kBase62 =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const char* const kEapiHost = "https://interface.music.163.com";
+const char* const kSearchPath = "/eapi/search/song/list/page";
+const char* const kLyricPath = "/eapi/song/lyric/v1";
+const char* const kEapiKey = "e82ckenh8dichen8";  // 16 字节 AES-ECB key
 
-const char* const kSearchUrl = "https://music.163.com/weapi/search/get";
-const char* const kLyricUrl = "https://music.163.com/weapi/song/lyric";
-
-// 生成 16 字符随机串（base62）。thread_local 避免多线程竞态。
-std::string randomKey16() {
-    static std::random_device rd;
-    thread_local std::mt19937 gen(rd());
-    static std::uniform_int_distribution<size_t> dist(0, 61);
-    std::string key;
-    key.reserve(16);
-    for (int i = 0; i < 16; ++i) {
-        key.push_back(kBase62[dist(gen)]);
+// 大写 hex 编码
+std::string hexEncodeUpper(const std::string& data) {
+    static const char* kHex = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(data.size() * 2);
+    for (unsigned char c : data) {
+        out.push_back(kHex[c >> 4]);
+        out.push_back(kHex[c & 0x0F]);
     }
-    return key;
-}
-
-// 反转字符串。
-std::string reverse(const std::string& s) {
-    return std::string(s.rbegin(), s.rend());
+    return out;
 }
 
 // 从 JSON 数组中提取多条歌曲对象。pos 初始指向 '['，结束时指向 ']' 之后。
@@ -71,43 +54,49 @@ bool extractSongsArray(const std::string& json, size_t& pos,
 NetEaseProvider::NetEaseProvider(HttpClient& http, CryptoPort& crypto)
     : http_(http), crypto_(crypto) {}
 
-NetEaseProvider::WeapiResult NetEaseProvider::weapiEncrypt(const std::string& json) {
-    WeapiResult result;
+std::string NetEaseProvider::eapiEncrypt(const std::string& path, const std::string& params) {
+    // 加密用的 path 需将 "eapi" 替换为 "api"
+    std::string apiPath = path;
+    size_t pos = apiPath.find("eapi");
+    if (pos != std::string::npos) {
+        apiPath.replace(pos, 4, "api");
+    }
 
-    std::string presetKey(kPresetKey, 16);
-    std::string iv(kIv, 16);
+    // sign = MD5("nobody" + api_path + "use" + params + "md5forencrypt")
+    std::string signInput = std::string("nobody") + apiPath +
+                            "use" + params + "md5forencrypt";
+    std::string sign = crypto_.md5Hex(signInput);
 
-    std::string step1 = crypto_.aes128CbcEncrypt(json, presetKey, iv);
-    if (step1.empty()) return result;
+    // source = api_path + "-36cd479b6b5-" + params + "-36cd479b6b5-" + sign
+    std::string source = apiPath + "-36cd479b6b5-" +
+                         params + "-36cd479b6b5-" + sign;
 
-    std::string secretKey = randomKey16();
-    std::string step2 = crypto_.aes128CbcEncrypt(step1, secretKey, iv);
-    if (step2.empty()) return result;
+    // AES-128-ECB encrypt with key "e82ckenh8dichen8"
+    std::string key(kEapiKey, 16);
+    std::string encrypted = crypto_.aes128EcbEncrypt(source, key);
+    if (encrypted.empty()) return {};
 
-    result.params = base64Encode(step2);
-
-    std::string modulusHex(kModulusHex);
-    std::string exponentHex(kExponentHex);
-    result.encSecKey = crypto_.rsaRawEncrypt(reverse(secretKey), modulusHex, exponentHex);
-    if (result.encSecKey.empty()) return result;
-
-    return result;
+    return hexEncodeUpper(encrypted);
 }
 
-std::string NetEaseProvider::weapiPost(const std::string& url, const std::string& json) {
-    WeapiResult w = weapiEncrypt(json);
-    if (w.params.empty() || w.encSecKey.empty()) return {};
+std::string NetEaseProvider::eapiPost(const std::string& urlPath, const std::string& json) {
+    std::string params = eapiEncrypt(urlPath, json);
+    if (params.empty()) return {};
 
-    // 组装 URL-encoded form body。
-    std::string body = "params=" + urlEncodeComponent(w.params) +
-                       "&encSecKey=" + urlEncodeComponent(w.encSecKey);
+    std::string body = "params=" + urlEncodeComponent(params);
+    std::string fullUrl = std::string(kEapiHost) + urlPath;
 
     std::vector<std::pair<std::string, std::string>> headers = {
-        {"Referer", "https://music.163.com/"},
+        {"Cookie", "os=pc; appver=3.1.3.203419;"},
+        {"Origin", "orpheus://orpheus"},
+        {"User-Agent",
+         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+         "AppleWebKit/537.36 (KHTML, like Gecko) "
+         "NeteaseMusicDesktop/3.1.3.203419"},
         {"Content-Type", "application/x-www-form-urlencoded"},
     };
 
-    HttpResponse r = http_.post(url, body, headers);
+    HttpResponse r = http_.post(fullUrl, body, headers);
     if (r.status != 200) return {};
     return r.body;
 }
@@ -174,9 +163,10 @@ bool NetEaseProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
 
     auto tryQuery = [&](const std::string& query) {
         std::string searchJson =
-            "{\"s\":\"" + query +
-            "\",\"type\":1,\"offset\":0,\"limit\":5}";
-        std::string searchResp = weapiPost(kSearchUrl, searchJson);
+            "{\"keyword\":\"" + query +
+            "\",\"scene\":\"NORMAL\",\"needCorrect\":\"true\","
+            "\"limit\":5,\"offset\":0,\"e_r\":true,\"header\":{}}";
+        std::string searchResp = eapiPost(kSearchPath, searchJson);
         if (searchResp.empty()) return false;
 
         int64_t code = 0;
@@ -209,8 +199,9 @@ bool NetEaseProvider::fetchById(const std::string& id, LyricData& out) {
 
     std::string lyricJson =
         "{\"id\":\"" + id +
-        "\",\"lv\":-1,\"tv\":-1,\"cs\":-1}";
-    std::string lyricResp = weapiPost(kLyricUrl, lyricJson);
+        "\",\"lv\":\"-1\",\"tv\":\"-1\",\"rv\":\"-1\",\"yv\":\"-1\","
+        "\"e_r\":true,\"header\":{}}";
+    std::string lyricResp = eapiPost(kLyricPath, lyricJson);
     if (lyricResp.empty()) return false;
 
     int64_t code = 0;

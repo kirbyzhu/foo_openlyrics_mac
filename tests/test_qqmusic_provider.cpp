@@ -28,6 +28,7 @@ public:
 class FakeCrypto : public CryptoPort {
 public:
     std::string aes128CbcEncrypt(const std::string&, const std::string&, const std::string&) override { return {}; }
+    std::string aes128EcbEncrypt(const std::string&, const std::string&) override { return {}; }
     std::string rsaRawEncrypt(const std::string&, const std::string&, const std::string&) override { return {}; }
     std::string tripleDesEcbDecrypt(const std::string&, const std::string&) override { return {}; }
     std::string md5Hex(const std::string&) override { return {}; }

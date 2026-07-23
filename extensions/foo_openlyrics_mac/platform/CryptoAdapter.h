@@ -12,6 +12,10 @@ public:
         const std::string& key,
         const std::string& iv) override;
 
+    std::string aes128EcbEncrypt(
+        const std::string& plain,
+        const std::string& key) override;
+
     std::string rsaRawEncrypt(
         const std::string& plain,
         const std::string& modulusHex,

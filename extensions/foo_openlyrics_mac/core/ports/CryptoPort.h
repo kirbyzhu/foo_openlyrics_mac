@@ -15,6 +15,12 @@ public:
         const std::string& key,
         const std::string& iv) = 0;
 
+    // AES-128-ECB 加密，PKCS7 padding。key 为原始字节（长度 16）。
+    // 返回原始密文字节，调用方自行 hex 编码。
+    virtual std::string aes128EcbEncrypt(
+        const std::string& plain,
+        const std::string& key) = 0;
+
     // 裸 RSA 加密（无 padding）：cipher = plain^e mod n。
     // modulusHex: 小写 hex 字符串，256 字符（128 字节），含前导 00。
     // exponentHex: 小写 hex 字符串，如 "010001"（65537）。
