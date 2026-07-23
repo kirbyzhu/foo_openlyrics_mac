@@ -728,6 +728,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     BOOL _started;
     BOOL _appIsActive;
     BOOL _savePending;
+    BOOL _suppressSelfLyricReload;   // 抑制本控制器自身发起的歌词变更通知触发的重载，避免与异步保存竞态覆盖内存歌词
 }
 
 + (instancetype)sharedController {
@@ -1113,7 +1114,10 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 }
 
 - (void)playbackHubLyricDidChange {
-    // 主面板偏移/歌词变更后从本地文件重新加载
+    // 主面板偏移/歌词变更后从本地文件重新加载。
+    // 本控制器自身提交偏移/删除时也会广播，此处须跳过，否则会触发从磁盘重载，
+    // 与自身的异步 forceSave 竞态，把已更新的内存歌词覆盖成空 → 显示"无歌词"。
+    if (_suppressSelfLyricReload) return;
     if (!_started || !_config.deskLyrics.enabled) return;
     PlaybackHub *hub = [PlaybackHub sharedHub];
     if (![hub hasTrack]) return;
@@ -1337,7 +1341,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     [_contentView showMessage:ok ? @"已删除歌词文件" : @"删除失败"];
 
     // 通知主面板同步删除
-    [[PlaybackHub sharedHub] notifyLyricChanged];
+    [self broadcastLyricChangedFromSelf];
 }
 
 #pragma mark - 同步 tick
@@ -1363,6 +1367,15 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 }
 
 #pragma mark - 偏移拖拽提交
+
+// 广播歌词/偏移变更给其他观察者（主面板），并抑制对本控制器自身的回调，
+// 避免自触发从磁盘重载与异步保存竞态覆盖内存歌词。notifyLyricChanged 为同步同线程回调，
+// 故标志位包裹即可精确跳过自身回调，不影响主面板等其他观察者。
+- (void)broadcastLyricChangedFromSelf {
+    _suppressSelfLyricReload = YES;
+    [[PlaybackHub sharedHub] notifyLyricChanged];
+    _suppressSelfLyricReload = NO;
+}
 
 - (void)commitOffsetDelta:(int64_t)deltaMs {
     if (_currentLyricData.lines.empty()) return;
@@ -1404,7 +1417,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     }
 
     // 通知主面板同步偏移
-    [[PlaybackHub sharedHub] notifyLyricChanged];
+    [self broadcastLyricChangedFromSelf];
 }
 
 #pragma mark - NSWindowDelegate
