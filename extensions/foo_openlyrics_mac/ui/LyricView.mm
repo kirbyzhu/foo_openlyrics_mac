@@ -35,7 +35,10 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
     CGFloat _lineHeight;
 
     NSTimer *_animTimer;
+    BOOL _transparentBackground;
 }
+
+@synthesize transparentBackground = _transparentBackground;
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
     self = [super initWithFrame:frameRect];
@@ -97,6 +100,10 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
     _lineHeight = config.fontSize * 1.8 + config.lineSpacing;
     [self rebuildCachedLines];
     self.needsDisplay = YES;
+}
+
+- (void)stopAnimation {
+    [self stopAnimationTimer];
 }
 
 #pragma mark - 内部：数据准备
@@ -202,8 +209,10 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
 - (void)drawRect:(NSRect)dirtyRect {
     [super drawRect:dirtyRect];
     const NSRect bounds = self.bounds;
-    [[NSColor controlBackgroundColor] set];
-    NSRectFill(bounds);
+    if (!_transparentBackground) {
+        [[NSColor controlBackgroundColor] set];
+        NSRectFill(bounds);
+    }
 
     if (_normalAttrLines.count == 0) {
         [self drawAttrString:_placeholderAttr centeredInRect:bounds];

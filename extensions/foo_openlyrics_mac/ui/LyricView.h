@@ -23,4 +23,10 @@
 // 应用显示配置，重建已缓存的富文本行。
 - (void)applyDisplayConfig:(const openlyrics::DisplayConfig &)config;
 
+// 停止内部滚动动画定时器。桌面歌词面板隐藏时调用，避免定时器空转。
+- (void)stopAnimation;
+
+// 设为 YES 时 drawRect: 不填充背景色，供桌面歌词透明 NSPanel 使用。默认 NO。
+@property(nonatomic, assign) BOOL transparentBackground;
+
 @end
