@@ -9,7 +9,7 @@
 #include <cstring>
 
 // 组件版本信息，每个组件 DLL/bundle 只应有一份。
-DECLARE_COMPONENT_VERSION("OpenLyrics", "0.2.0", "macOS lyrics panel");
+DECLARE_COMPONENT_VERSION("OpenLyrics", "0.4.0", "macOS lyrics panel");
 
 namespace {
 

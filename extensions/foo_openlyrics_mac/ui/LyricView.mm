@@ -29,24 +29,33 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
     NSArray<NSAttributedString *> *_normalAttrLines;
     NSArray<NSAttributedString *> *_highlightAttrLines;
     NSAttributedString *_placeholderAttr;
+    NSString *_titleText;
+    NSAttributedString *_titleAttr;
 
     double _scrollOffset;
     double _targetScrollOffset;
-    CGFloat _lineHeight;
+    NSMutableArray<NSNumber *> *_rowHeights;
+    BOOL _rowHeightsDirty;
+    CGFloat _lastWidthForRowHeights;
 
     NSTimer *_animTimer;
     BOOL _transparentBackground;
+    NSInteger _maxLines;
 }
 
 @synthesize transparentBackground = _transparentBackground;
+@synthesize maxLines = _maxLines;
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
     self = [super initWithFrame:frameRect];
     if (self != nil) {
         _displayCfg = openlyrics::DisplayConfig{};
-        _lineHeight = 30.0;
         _normalAttrLines = @[];
         _highlightAttrLines = @[];
+        _rowHeights = [NSMutableArray array];
+        _rowHeightsDirty = YES;
+        _lastWidthForRowHeights = 0;
+        _maxLines = 0;
     }
     return self;
 }
@@ -73,6 +82,7 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
     _targetScrollOffset = 0;
 
     [self rebuildCachedLines];
+    _rowHeightsDirty = YES;
 
     if (_data.synced && _normalAttrLines.count > 0) {
         [self startAnimationTimerIfNeeded];
@@ -97,13 +107,51 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
 
 - (void)applyDisplayConfig:(const openlyrics::DisplayConfig &)config {
     _displayCfg = config;
-    _lineHeight = config.fontSize * 1.8 + config.lineSpacing;
     [self rebuildCachedLines];
+    [self rebuildTitleAttr];
+    _rowHeightsDirty = YES;
     self.needsDisplay = YES;
 }
 
 - (void)stopAnimation {
     [self stopAnimationTimer];
+}
+
+- (void)invalidateRowHeights {
+    _rowHeightsDirty = YES;
+    self.needsDisplay = YES;
+}
+
+- (void)setTitleText:(NSString *)text {
+    NSString *t = (text.length > 0) ? text : nil;
+    if ((t == nil && _titleText == nil) || [t isEqualToString:_titleText]) return;
+    _titleText = [t copy];
+    [self rebuildTitleAttr];
+    // 标题出现/消失会改变歌词区高度，需重算滚动居中目标
+    if (_data.synced && _normalAttrLines.count > 0) {
+        _targetScrollOffset = [self computeTargetScrollOffsetForResult:_syncResult];
+    }
+    self.needsDisplay = YES;
+}
+
+// 标题栏高度：有标题时为字号 + 上下留白，无标题为 0（歌词区占满）。
+- (CGFloat)titleHeight {
+    if (_titleAttr == nil || _titleAttr.length == 0) return 0.0;
+    return ceil(_displayCfg.fontSize + 10.0);
+}
+
+- (void)rebuildTitleAttr {
+    if (_titleText.length == 0) { _titleAttr = nil; return; }
+    NSColor *color = colorFromHex(_displayCfg.normalColor,
+        [NSColor colorWithCalibratedWhite:0.85 alpha:1.0]);
+    NSMutableParagraphStyle *ps = [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
+    ps.alignment = alignmentFromString(_displayCfg.alignment);
+    ps.lineBreakMode = NSLineBreakByTruncatingTail;  // 单行超长省略，标题不换行
+    _titleAttr = [[NSAttributedString alloc] initWithString:_titleText attributes:@{
+        NSFontAttributeName : [self normalFont],
+        NSForegroundColorAttributeName : color,
+        NSParagraphStyleAttributeName : ps,
+    }];
 }
 
 #pragma mark - 内部：数据准备
@@ -132,8 +180,8 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
 
     NSMutableParagraphStyle *ps = [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
     ps.alignment = alignmentFromString(_displayCfg.alignment);
-    // 行距通过 NSParagraphStyle 控制行间距
     ps.lineSpacing = _displayCfg.lineSpacing;
+    ps.lineBreakMode = NSLineBreakByCharWrapping;
 
     NSDictionary *normalAttrs = @{
         NSFontAttributeName : [self normalFont],
@@ -159,7 +207,6 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
     _normalAttrLines = normal;
     _highlightAttrLines = highlight;
 
-    // 重建占位文本
     NSColor *placeholderColor = colorFromHex(_displayCfg.normalColor,
         [NSColor colorWithCalibratedWhite:0.45 alpha:1.0]);
     _placeholderAttr = [[NSAttributedString alloc] initWithString:kPlaceholderNoLyrics attributes:@{
@@ -168,10 +215,49 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
     }];
 }
 
+- (void)computeRowHeightsIfNeeded {
+    const CGFloat width = self.bounds.size.width;
+    if (!_rowHeightsDirty && width == _lastWidthForRowHeights) return;
+
+    const NSInteger count = static_cast<NSInteger>(_normalAttrLines.count);
+    NSMutableArray *heights = [NSMutableArray arrayWithCapacity:count];
+    const CGFloat availWidth = MAX(width - 16.0, 20.0);
+
+    // 按高亮（放大）字体测量行高：高亮行字号放大 highlightScale 倍，若按普通字体
+    // 测高，放大加粗行会被垂直截断、换行显示不完整。统一用较大者保证任何行不截断。
+    for (NSInteger i = 0; i < count; i++) {
+        CGFloat h = [self heightForAttrString:_highlightAttrLines[i] width:availWidth];
+        [heights addObject:@(h)];
+    }
+
+    _rowHeights = heights;
+    _rowHeightsDirty = NO;
+    _lastWidthForRowHeights = width;
+}
+
+- (CGFloat)heightForAttrString:(NSAttributedString *)str width:(CGFloat)width {
+    if (str.length == 0) return _displayCfg.fontSize + _displayCfg.lineSpacing;
+    NSSize sz = [str boundingRectWithSize:NSMakeSize(width, CGFLOAT_MAX)
+                                  options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading]
+                    .size;
+    // boundingRectWithSize 返回紧凑包围盒，drawInRect 实际绘制可能略高，加 4px 缓冲
+    return ceil(sz.height + 4.0);
+}
+
 - (double)computeTargetScrollOffsetForResult:(const openlyrics::SyncResult &)result {
-    const double centerLine = (result.lineIndex >= 0) ? (result.lineIndex + result.progress) : 0.0;
-    const double contentCenterY = centerLine * _lineHeight + _lineHeight / 2.0;
-    return contentCenterY - self.bounds.size.height / 2.0;
+    [self computeRowHeightsIfNeeded];
+    if (_rowHeights.count == 0) return 0;
+
+    const NSInteger idx = result.lineIndex;
+    double yBefore = 0;
+    for (NSInteger i = 0; i < idx && i < (NSInteger)_rowHeights.count; i++) {
+        yBefore += [_rowHeights[i] doubleValue];
+    }
+    const double lineH = (idx >= 0 && idx < (NSInteger)_rowHeights.count)
+        ? [_rowHeights[idx] doubleValue] : 0;
+    const double centerLineY = yBefore + lineH * result.progress + lineH / 2.0;
+    const double lyricHeight = self.bounds.size.height - [self titleHeight];
+    return centerLineY - lyricHeight / 2.0;
 }
 
 #pragma mark - 内部：缓动定时器
@@ -214,39 +300,85 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
         NSRectFill(bounds);
     }
 
+    const CGFloat titleH = [self titleHeight];
+    const NSRect lyricRect = NSMakeRect(bounds.origin.x, bounds.origin.y + titleH,
+                                        bounds.size.width, bounds.size.height - titleH);
+
     if (_normalAttrLines.count == 0) {
-        [self drawAttrString:_placeholderAttr centeredInRect:bounds];
-        return;
+        [self drawAttrString:_placeholderAttr centeredInRect:lyricRect];
+    } else {
+        // 歌词裁剪到标题下方区域，防止上滚的歌词覆盖标题栏
+        [NSGraphicsContext saveGraphicsState];
+        NSRectClip(lyricRect);
+        if (!_data.synced) {
+            [self drawStaticLinesInRect:lyricRect];
+        } else {
+            [self drawSyncedLinesInRect:lyricRect];
+        }
+        [NSGraphicsContext restoreGraphicsState];
     }
 
-    if (!_data.synced) {
-        [self drawStaticLinesInBounds:bounds];
-        return;
-    }
-
-    [self drawSyncedLinesInBounds:bounds];
-}
-
-- (void)drawStaticLinesInBounds:(NSRect)bounds {
-    CGFloat y = 8.0;
-    for (NSAttributedString *line in _normalAttrLines) {
-        if (y > bounds.size.height) break;
-        NSRect rowRect = NSMakeRect(8.0, y, bounds.size.width - 16.0, _lineHeight);
-        [self drawAttrString:line centeredInRect:rowRect];
-        y += _lineHeight;
+    if (titleH > 0) {
+        [self drawTitleInRect:NSMakeRect(bounds.origin.x, bounds.origin.y, bounds.size.width, titleH)];
     }
 }
 
-- (void)drawSyncedLinesInBounds:(NSRect)bounds {
+- (void)drawTitleInRect:(NSRect)rect {
+    if (_titleAttr == nil || _titleAttr.length == 0) return;
+    const NSSize sz = _titleAttr.size;
+    const CGFloat pad = 6.0;
+    NSRect textRect = NSMakeRect(rect.origin.x + pad,
+                                 rect.origin.y + (rect.size.height - sz.height) / 2.0,
+                                 rect.size.width - 2 * pad, sz.height);
+    [_titleAttr drawInRect:textRect];  // 段落样式 truncatingTail 处理超长单行
+}
+
+- (void)drawStaticLinesInRect:(NSRect)rect {
+    [self computeRowHeightsIfNeeded];
+    CGFloat y = rect.origin.y + 8.0;
+    for (NSInteger i = 0; i < (NSInteger)_rowHeights.count; i++) {
+        if (y > NSMaxY(rect)) break;
+        CGFloat h = [_rowHeights[i] doubleValue];
+        NSRect rowRect = NSMakeRect(rect.origin.x + 8.0, y, rect.size.width - 16.0, h);
+        [self drawAttrString:_normalAttrLines[i] inRect:rowRect];
+        y += h;
+    }
+}
+
+- (void)drawSyncedLinesInRect:(NSRect)rect {
+    [self computeRowHeightsIfNeeded];
     const NSInteger count = static_cast<NSInteger>(_normalAttrLines.count);
+    if (count == 0) return;
+
+    NSInteger fromLine = 0;
+    NSInteger toLine = count;
+    if (_maxLines > 0) {
+        const NSInteger half = _maxLines / 2;
+        fromLine = _syncResult.lineIndex - half;
+        toLine = _syncResult.lineIndex + half + (_maxLines % 2);
+        if (fromLine < 0) fromLine = 0;
+        if (toLine > count) toLine = count;
+    }
+
+    // 累加行高计算每行的 y 偏移，基准平移到歌词区顶部 rect.origin.y
+    double yAccum = 0;
     for (NSInteger i = 0; i < count; i++) {
-        const CGFloat rowTop = i * _lineHeight - _scrollOffset;
-        if (rowTop + _lineHeight < 0 || rowTop > bounds.size.height) continue;
+        const double h = [_rowHeights[i] doubleValue];
+        const double rowTop = rect.origin.y + yAccum - _scrollOffset;
+        yAccum += h;
+
+        if (i < fromLine || i >= toLine) continue;
+        if (rowTop + h < NSMinY(rect) || rowTop > NSMaxY(rect)) continue;
 
         NSAttributedString *line = (i == _syncResult.lineIndex) ? _highlightAttrLines[i] : _normalAttrLines[i];
-        NSRect rowRect = NSMakeRect(0.0, rowTop, bounds.size.width, _lineHeight);
-        [self drawAttrString:line centeredInRect:rowRect];
+        NSRect rowRect = NSMakeRect(rect.origin.x + 8.0, rowTop, rect.size.width - 16.0, h);
+        [self drawAttrString:line inRect:rowRect];
     }
+}
+
+- (void)drawAttrString:(NSAttributedString *)str inRect:(NSRect)rect {
+    if (str.length == 0) return;
+    [str drawInRect:rect];
 }
 
 - (void)drawAttrString:(NSAttributedString *)str centeredInRect:(NSRect)rect {
@@ -264,6 +396,20 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
     if (x < rect.origin.x) x = rect.origin.x;
     const CGFloat y = rect.origin.y + (rect.size.height - size.height) / 2.0;
     [str drawAtPoint:NSMakePoint(x, y)];
+}
+
+#pragma mark - 窗口尺寸变化
+
+- (void)setFrameSize:(NSSize)newSize {
+    [super setFrameSize:newSize];
+    if (fabs(newSize.width - _lastWidthForRowHeights) > 0.5) {
+        _rowHeightsDirty = YES;
+        // 更新滚动目标，因为行高可能因换行改变
+        if (_data.synced && _normalAttrLines.count > 0) {
+            _targetScrollOffset = [self computeTargetScrollOffsetForResult:_syncResult];
+        }
+        self.needsDisplay = YES;
+    }
 }
 
 @end

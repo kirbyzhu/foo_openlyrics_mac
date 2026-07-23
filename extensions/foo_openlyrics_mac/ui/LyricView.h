@@ -29,4 +29,14 @@
 // 设为 YES 时 drawRect: 不填充背景色，供桌面歌词透明 NSPanel 使用。默认 NO。
 @property(nonatomic, assign) BOOL transparentBackground;
 
+// 0 = 显示全部行；>0 时仅渲染当前行附近 maxLines 行（仅 synced 模式生效）。默认 0。
+@property(nonatomic, assign) NSInteger maxLines;
+
+// 窗口宽度变化后调用，强制重新计算各行文本换行高度。由 controller 在 resize 回调中调用。
+- (void)invalidateRowHeights;
+
+// 设置顶部固定标题（如「歌名 — 艺术家」）。传 nil 或空串隐藏标题栏，歌词区占满。
+// 标题不随歌词滚动。由 controller 在曲目切换时下发。
+- (void)setTitleText:(NSString *)text;
+
 @end

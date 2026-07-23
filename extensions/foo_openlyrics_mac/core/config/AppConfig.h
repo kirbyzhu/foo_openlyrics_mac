@@ -13,6 +13,12 @@ struct DeskLyricsConfig {
     std::string highlightColor = "#FFD700";
     std::string alignment = "center";
     double lineSpacing = 8.0;
+    double windowWidth = 600.0;
+    double windowHeight = 120.0;
+    double windowX = -1;   // -1 表示下次启动时自动居中
+    double windowY = -1;
+    int maxLines = 3;       // 显示行数，取值 3–7
+    bool showTitle = true;  // 顶部显示「歌名 — 艺术家」标题栏
 };
 
 struct SourceConfig {

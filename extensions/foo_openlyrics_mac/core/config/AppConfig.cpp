@@ -1,6 +1,7 @@
 #include "config/AppConfig.h"
 #include "net/JsonField.h"
 #include <sstream>
+#include <stdexcept>
 
 namespace openlyrics {
 
@@ -62,15 +63,10 @@ void parseSources(const std::string& json, std::vector<SourceConfig>& out) {
             ++cur;
         if (cur >= end || json[cur] != '{') break;
 
-        // 找当前 {} 块
-        int depth = 0;
+        // 找当前 {} 块（正确处理字符串内花括号）
         size_t objStart = cur;
-        while (cur < end + 1) {
-            if (json[cur] == '{') ++depth;
-            else if (json[cur] == '}') { --depth; if (depth == 0) { ++cur; break; } }
-            ++cur;
-        }
-        std::string obj(json, objStart, cur - objStart);
+        std::string obj;
+        if (!jsonExtractObject(json, cur, obj)) break;
 
         SourceConfig sc;
         jsonGetString(obj, "key", sc.key);
@@ -98,7 +94,8 @@ void parseDisplay(const std::string& json, DisplayConfig& out) {
                    ((dispObj[numEnd] >= '0' && dispObj[numEnd] <= '9') || dispObj[numEnd] == '.'))
                 ++numEnd;
             if (numEnd > pos) {
-                out.highlightScale = std::stod(dispObj.substr(pos, numEnd - pos));
+                try { out.highlightScale = std::stod(dispObj.substr(pos, numEnd - pos)); }
+                catch (const std::exception&) {}
             }
         }
     }
@@ -118,7 +115,13 @@ void writeDeskLyrics(std::ostringstream& oss, const DeskLyricsConfig& d) {
         << "\"normalColor\":\"" << esc(d.normalColor) << "\","
         << "\"highlightColor\":\"" << esc(d.highlightColor) << "\","
         << "\"alignment\":\"" << esc(d.alignment) << "\","
-        << "\"lineSpacing\":" << d.lineSpacing
+        << "\"lineSpacing\":" << d.lineSpacing << ','
+        << "\"windowWidth\":" << d.windowWidth << ','
+        << "\"windowHeight\":" << d.windowHeight << ','
+        << "\"windowX\":" << d.windowX << ','
+        << "\"windowY\":" << d.windowY << ','
+        << "\"maxLines\":" << d.maxLines << ','
+        << "\"showTitle\":" << (d.showTitle ? "true" : "false")
         << '}';
 }
 
@@ -137,7 +140,10 @@ void parseDeskLyrics(const std::string& json, DeskLyricsConfig& out) {
             while (numEnd < obj.size() &&
                    ((obj[numEnd] >= '0' && obj[numEnd] <= '9') || obj[numEnd] == '.'))
                 ++numEnd;
-            if (numEnd > pos) out.fontSize = std::stod(obj.substr(pos, numEnd - pos));
+            if (numEnd > pos) {
+                try { out.fontSize = std::stod(obj.substr(pos, numEnd - pos)); }
+                catch (const std::exception&) {}
+            }
         }
     }
     jsonGetString(obj, "normalColor", out.normalColor);
@@ -153,9 +159,41 @@ void parseDeskLyrics(const std::string& json, DeskLyricsConfig& out) {
             while (numEnd < obj.size() &&
                    ((obj[numEnd] >= '0' && obj[numEnd] <= '9') || obj[numEnd] == '.'))
                 ++numEnd;
-            if (numEnd > pos) out.lineSpacing = std::stod(obj.substr(pos, numEnd - pos));
+            if (numEnd > pos) {
+                try { out.lineSpacing = std::stod(obj.substr(pos, numEnd - pos)); }
+                catch (const std::exception&) {}
+            }
         }
     }
+    // windowWidth / windowHeight: 手动提取 double（jsonGetInt 会丢小数位）
+    auto parseDoubleField = [&](const char* key, double& target) {
+        size_t kp = obj.find(key);
+        if (kp == std::string::npos) return;
+        kp = obj.find(':', kp);
+        if (kp == std::string::npos) return;
+        ++kp;
+        while (kp < obj.size() && (obj[kp] == ' ' || obj[kp] == '\t')) ++kp;
+        size_t numEnd = kp;
+        while (numEnd < obj.size() &&
+               ((obj[numEnd] >= '0' && obj[numEnd] <= '9') || obj[numEnd] == '.'))
+            ++numEnd;
+        if (numEnd > kp) {
+            try { target = std::stod(obj.substr(kp, numEnd - kp)); }
+            catch (const std::exception&) {}
+        }
+    };
+    parseDoubleField("\"windowWidth\"", out.windowWidth);
+    parseDoubleField("\"windowHeight\"", out.windowHeight);
+    parseDoubleField("\"windowX\"", out.windowX);
+    parseDoubleField("\"windowY\"", out.windowY);
+    int64_t maxLines = out.maxLines;
+    if (jsonGetInt(obj, "maxLines", maxLines)) out.maxLines = static_cast<int>(maxLines);
+    jsonGetBool(obj, "showTitle", out.showTitle);
+
+    // 加载后 clamp 到合法范围，防止损坏的配置导致窗口不可见
+    if (out.windowWidth < 200.0) out.windowWidth = 600.0;
+    if (out.windowHeight < 60.0) out.windowHeight = 120.0;
+    if (out.maxLines < 3 || out.maxLines > 7) out.maxLines = 3;
 }
 
 }  // namespace

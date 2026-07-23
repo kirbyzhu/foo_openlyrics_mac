@@ -112,6 +112,70 @@ TEST(AppConfig, DeskLyricsJsonKeyPresent) {
     EXPECT_NE(json.find("\"deskLyrics\""), std::string::npos);
 }
 
+TEST(AppConfig, DeskLyricsNewFieldsDefaults) {
+    AppConfig c = AppConfig::defaults();
+    EXPECT_DOUBLE_EQ(c.deskLyrics.windowWidth, 600.0);
+    EXPECT_DOUBLE_EQ(c.deskLyrics.windowHeight, 120.0);
+    EXPECT_DOUBLE_EQ(c.deskLyrics.windowX, -1.0);
+    EXPECT_DOUBLE_EQ(c.deskLyrics.windowY, -1.0);
+    EXPECT_EQ(c.deskLyrics.maxLines, 3);
+    EXPECT_TRUE(c.deskLyrics.showTitle);
+}
+
+TEST(AppConfig, DeskLyricsNewFieldsRoundTrip) {
+    AppConfig c = AppConfig::defaults();
+    c.deskLyrics.windowWidth = 800.0;
+    c.deskLyrics.windowHeight = 200.0;
+    c.deskLyrics.windowX = 100.0;
+    c.deskLyrics.windowY = 200.0;
+    c.deskLyrics.maxLines = 7;
+    c.deskLyrics.showTitle = false;
+
+    std::string json = c.toJson();
+    AppConfig c2 = AppConfig::fromJson(json);
+
+    EXPECT_DOUBLE_EQ(c2.deskLyrics.windowWidth, 800.0);
+    EXPECT_DOUBLE_EQ(c2.deskLyrics.windowHeight, 200.0);
+    EXPECT_DOUBLE_EQ(c2.deskLyrics.windowX, 100.0);
+    EXPECT_DOUBLE_EQ(c2.deskLyrics.windowY, 200.0);
+    EXPECT_EQ(c2.deskLyrics.maxLines, 7);
+    EXPECT_FALSE(c2.deskLyrics.showTitle);
+}
+
+TEST(AppConfig, DeskLyricsShowTitleDefaultsTrueOnOldConfig) {
+    // 旧配置的 deskLyrics 对象缺少 showTitle 字段时应回退默认 true
+    AppConfig c = AppConfig::defaults();
+    std::string json = c.toJson();
+    std::string needle = ",\"showTitle\":true";
+    size_t pos = json.find(needle);
+    ASSERT_NE(pos, std::string::npos);
+    std::string oldJson = json.substr(0, pos) + json.substr(pos + needle.size());
+
+    AppConfig c2 = AppConfig::fromJson(oldJson);
+    EXPECT_TRUE(c2.deskLyrics.showTitle);
+}
+
+TEST(AppConfig, DeskLyricsClampedOnInvalidSizes) {
+    // 窗口尺寸过小或非法时，fromJson 应 clamp 到默认值
+    AppConfig c = AppConfig::defaults();
+    c.deskLyrics.windowWidth = 50;
+    c.deskLyrics.windowHeight = 10;
+    c.deskLyrics.maxLines = -5;
+    std::string json = c.toJson();
+    AppConfig c2 = AppConfig::fromJson(json);
+    EXPECT_DOUBLE_EQ(c2.deskLyrics.windowWidth, 600.0);
+    EXPECT_DOUBLE_EQ(c2.deskLyrics.windowHeight, 120.0);
+    EXPECT_EQ(c2.deskLyrics.maxLines, 3);
+}
+
+TEST(AppConfig, DeskLyricsMaxLinesClampedAboveRange) {
+    // maxLines 超出 3–7 上界时 fromJson 回退默认 3
+    AppConfig c = AppConfig::defaults();
+    c.deskLyrics.maxLines = 12;
+    AppConfig c2 = AppConfig::fromJson(c.toJson());
+    EXPECT_EQ(c2.deskLyrics.maxLines, 3);
+}
+
 TEST(AppConfig, DeskLyricsFromOldJsonReturnsDefaults) {
     // 不含 deskLyrics 键的旧 JSON 应回退默认值
     AppConfig c = AppConfig::defaults();
@@ -123,6 +187,51 @@ TEST(AppConfig, DeskLyricsFromOldJsonReturnsDefaults) {
     AppConfig c2 = AppConfig::fromJson(oldJson);
     EXPECT_FALSE(c2.deskLyrics.enabled);
     EXPECT_DOUBLE_EQ(c2.deskLyrics.fontSize, 28.0);
+    EXPECT_DOUBLE_EQ(c2.deskLyrics.windowWidth, 600.0);
+    EXPECT_DOUBLE_EQ(c2.deskLyrics.windowHeight, 120.0);
+    EXPECT_DOUBLE_EQ(c2.deskLyrics.windowX, -1.0);
+    EXPECT_DOUBLE_EQ(c2.deskLyrics.windowY, -1.0);
+    EXPECT_EQ(c2.deskLyrics.maxLines, 3);
+}
+
+TEST(AppConfig, RoundTripHttpTimeoutSec) {
+    AppConfig c = AppConfig::defaults();
+    c.httpTimeoutSec = 30;
+    std::string json = c.toJson();
+    AppConfig c2 = AppConfig::fromJson(json);
+    EXPECT_EQ(c2.httpTimeoutSec, 30);
+}
+
+TEST(AppConfig, RoundTripMaxConsecutiveFailures) {
+    AppConfig c = AppConfig::defaults();
+    c.maxConsecutiveFailures = 10;
+    std::string json = c.toJson();
+    AppConfig c2 = AppConfig::fromJson(json);
+    EXPECT_EQ(c2.maxConsecutiveFailures, 10);
+}
+
+TEST(AppConfig, RoundTripSavePathTemplate) {
+    AppConfig c = AppConfig::defaults();
+    c.savePathTemplate = "/music/{artist}/{title}.lrc";
+    std::string json = c.toJson();
+    AppConfig c2 = AppConfig::fromJson(json);
+    EXPECT_EQ(c2.savePathTemplate, "/music/{artist}/{title}.lrc");
+}
+
+TEST(AppConfig, RoundTripLogLevel) {
+    AppConfig c = AppConfig::defaults();
+    c.logLevel = "debug";
+    std::string json = c.toJson();
+    AppConfig c2 = AppConfig::fromJson(json);
+    EXPECT_EQ(c2.logLevel, "debug");
+}
+
+TEST(AppConfig, RoundTripDefaultOffsetMs) {
+    AppConfig c = AppConfig::defaults();
+    c.defaultOffsetMs = -1500;
+    std::string json = c.toJson();
+    AppConfig c2 = AppConfig::fromJson(json);
+    EXPECT_EQ(c2.defaultOffsetMs, -1500);
 }
 
 TEST(AppConfig, JsonEscapesQuotes) {

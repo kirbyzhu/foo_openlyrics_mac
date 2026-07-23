@@ -7,6 +7,9 @@
 
 static NSString *const kDragDropType = @"foo_openlyrics.source_row";
 
+static const CGFloat kMinPanelWidth = 200.0;
+static const CGFloat kMinPanelHeight = 60.0;
+
 @interface PreferencesViewController () <NSTableViewDataSource, NSTableViewDelegate>
 @property(nonatomic, assign) openlyrics::AppConfig config;
 @property(nonatomic, strong) NSTableView *sourceTable;
@@ -27,12 +30,16 @@ static NSString *const kDragDropType = @"foo_openlyrics.source_row";
 // 桌面歌词
 @property(nonatomic, strong) NSButton *deskEnabledCheck;
 @property(nonatomic, strong) NSButton *deskBackgroundCheck;
+@property(nonatomic, strong) NSButton *deskShowTitleCheck;
 @property(nonatomic, strong) NSTextField *deskFontSizeField;
 @property(nonatomic, strong) NSColorWell *deskNormalColorWell;
 @property(nonatomic, strong) NSColorWell *deskHighlightColorWell;
 @property(nonatomic, strong) NSPopUpButton *deskAlignmentPopup;
 @property(nonatomic, strong) NSSlider *deskLineSpacingSlider;
 @property(nonatomic, strong) NSTextField *deskLineSpacingLabel;
+@property(nonatomic, strong) NSTextField *deskMaxLinesField;
+@property(nonatomic, strong) NSTextField *deskWindowWidthField;
+@property(nonatomic, strong) NSTextField *deskWindowHeightField;
 @end
 
 @implementation PreferencesViewController
@@ -323,6 +330,11 @@ static NSString *const kDragDropType = @"foo_openlyrics.source_row";
     self.deskBackgroundCheck = bgCheck;
     addGridRow([NSTextField labelWithString:@""], bgCheck);
 
+    // 显示标题栏
+    NSButton *titleCheck = [NSButton checkboxWithTitle:@"显示标题栏（歌名 — 艺术家）" target:self action:@selector(deskShowTitleChanged:)];
+    self.deskShowTitleCheck = titleCheck;
+    addGridRow([NSTextField labelWithString:@""], titleCheck);
+
     // 字号
     NSTextField *fontSizeF = [[NSTextField alloc] initWithFrame:NSZeroRect];
     fontSizeF.controlSize = NSControlSizeSmall;
@@ -379,6 +391,30 @@ static NSString *const kDragDropType = @"foo_openlyrics.source_row";
     ]];
     addGridRow([NSTextField labelWithString:@"行距："], spRow);
 
+    // 显示行数
+    NSTextField *maxLinesF = [[NSTextField alloc] initWithFrame:NSZeroRect];
+    maxLinesF.controlSize = NSControlSizeSmall;
+    maxLinesF.target = self;
+    maxLinesF.action = @selector(deskMaxLinesChanged:);
+    self.deskMaxLinesField = maxLinesF;
+    addGridRow([NSTextField labelWithString:@"显示行数："], maxLinesF);
+
+    // 窗口宽度
+    NSTextField *winWF = [[NSTextField alloc] initWithFrame:NSZeroRect];
+    winWF.controlSize = NSControlSizeSmall;
+    winWF.target = self;
+    winWF.action = @selector(deskWindowWidthChanged:);
+    self.deskWindowWidthField = winWF;
+    addGridRow([NSTextField labelWithString:@"窗口宽度："], winWF);
+
+    // 窗口高度
+    NSTextField *winHF = [[NSTextField alloc] initWithFrame:NSZeroRect];
+    winHF.controlSize = NSControlSizeSmall;
+    winHF.target = self;
+    winHF.action = @selector(deskWindowHeightChanged:);
+    self.deskWindowHeightField = winHF;
+    addGridRow([NSTextField labelWithString:@"窗口高度："], winHF);
+
     item.view = v;
     return item;
 }
@@ -392,6 +428,11 @@ static NSString *const kDragDropType = @"foo_openlyrics.source_row";
 
 - (void)deskBackgroundChanged:(NSButton *)sender {
     _config.deskLyrics.showOnlyInBackground = (sender.state == NSControlStateValueOn);
+    [self saveConfig];
+}
+
+- (void)deskShowTitleChanged:(NSButton *)sender {
+    _config.deskLyrics.showTitle = (sender.state == NSControlStateValueOn);
     [self saveConfig];
 }
 
@@ -418,6 +459,29 @@ static NSString *const kDragDropType = @"foo_openlyrics.source_row";
 - (void)deskLineSpacingChanged:(NSSlider *)sender {
     _config.deskLyrics.lineSpacing = sender.doubleValue;
     _deskLineSpacingLabel.stringValue = [NSString stringWithFormat:@"%.0f", sender.doubleValue];
+    [self saveConfig];
+}
+
+- (void)deskMaxLinesChanged:(NSTextField *)sender {
+    int v = [sender.stringValue intValue];
+    if (v < 3) v = 3;
+    if (v > 7) v = 7;
+    _config.deskLyrics.maxLines = v;
+    sender.stringValue = [NSString stringWithFormat:@"%d", v];
+    [self saveConfig];
+}
+
+- (void)deskWindowWidthChanged:(NSTextField *)sender {
+    double v = [sender.stringValue doubleValue];
+    if (v < kMinPanelWidth) v = kMinPanelWidth;
+    _config.deskLyrics.windowWidth = v;
+    [self saveConfig];
+}
+
+- (void)deskWindowHeightChanged:(NSTextField *)sender {
+    double v = [sender.stringValue doubleValue];
+    if (v < kMinPanelHeight) v = kMinPanelHeight;
+    _config.deskLyrics.windowHeight = v;
     [self saveConfig];
 }
 
@@ -459,6 +523,7 @@ static NSString *const kDragDropType = @"foo_openlyrics.source_row";
     const auto& dl = c.deskLyrics;
     _deskEnabledCheck.state = dl.enabled ? NSControlStateValueOn : NSControlStateValueOff;
     _deskBackgroundCheck.state = dl.showOnlyInBackground ? NSControlStateValueOn : NSControlStateValueOff;
+    _deskShowTitleCheck.state = dl.showTitle ? NSControlStateValueOn : NSControlStateValueOff;
     _deskFontSizeField.stringValue = [NSString stringWithFormat:@"%.0f", dl.fontSize];
     _deskNormalColorWell.color = [self colorFromHex:dl.normalColor];
     _deskHighlightColorWell.color = [self colorFromHex:dl.highlightColor];
@@ -470,6 +535,10 @@ static NSString *const kDragDropType = @"foo_openlyrics.source_row";
 
     _deskLineSpacingSlider.doubleValue = dl.lineSpacing;
     _deskLineSpacingLabel.stringValue = [NSString stringWithFormat:@"%.0f", dl.lineSpacing];
+
+    _deskMaxLinesField.stringValue = [NSString stringWithFormat:@"%d", dl.maxLines];
+    _deskWindowWidthField.stringValue = [NSString stringWithFormat:@"%.0f", dl.windowWidth];
+    _deskWindowHeightField.stringValue = [NSString stringWithFormat:@"%.0f", dl.windowHeight];
 }
 
 #pragma mark - NSTableViewDataSource / Delegate (Sources tab)
