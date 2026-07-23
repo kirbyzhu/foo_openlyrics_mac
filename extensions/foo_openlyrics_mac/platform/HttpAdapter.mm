@@ -103,6 +103,7 @@ HttpResponse HttpAdapter::get(const std::string& url,
         lastUrl = url;
         lastStatus = response.status;
         lastBodyLen = response.body.size();
+        lastBodyPrefix = response.body.substr(0, 200);
     }
 
     return response;
@@ -177,6 +178,7 @@ HttpResponse HttpAdapter::post(const std::string& url,
         lastUrl = url;
         lastStatus = response.status;
         lastBodyLen = response.body.size();
+        lastBodyPrefix = response.body.substr(0, 200);
     }
 
     return response;

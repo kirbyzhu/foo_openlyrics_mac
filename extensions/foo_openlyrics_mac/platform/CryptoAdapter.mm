@@ -164,7 +164,10 @@ std::string ccCrypt(Op op, CCAlgorithm alg, CCOptions options,
     if (alg == kCCAlgorithm3DES && keyLen != 24) return {};
     if (alg == kCCAlgorithmAES && keyLen != 16) return {};
 
-    size_t outLen = data.size() + kCCBlockSize3DES;  // 足够容纳 padding
+    // PKCS7 padding 最多加一个完整 block。AES block=16，3DES block=8。
+    size_t blockSize = (alg == kCCAlgorithmAES) ? kCCBlockSizeAES128
+                                                : kCCBlockSize3DES;
+    size_t outLen = data.size() + blockSize;
     std::vector<unsigned char> out(outLen);
     size_t moved = 0;
 

@@ -370,6 +370,9 @@ static const double kOffsetMax = 30.0;
                                " hits=", std::to_string(diag.size()).c_str(),
                                " http=", std::to_string(diagHttp.lastStatus).c_str(),
                                " err=", lastErr.c_str());
+            if (!lastErr.empty()) {
+                FB2K_console_print("  body=", diagHttp.lastBodyPrefix.c_str());
+            }
             if (!diag.empty()) {
                 for (size_t i = 0; i < diag.size() && i < 3; ++i) {
                     FB2K_console_print("  #", std::to_string(i+1).c_str(),
