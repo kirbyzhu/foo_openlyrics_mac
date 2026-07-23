@@ -45,14 +45,17 @@ bool SearchCoordinator::resolve(const TrackMeta& track, LyricData& out) {
     auto pool = collectAndScore(track);
     if (pool.empty()) return false;
 
-    // 3. 最优候选
-    const auto& best = pool[0];
-    if (best.score < kLowThreshold) return false;
+    // 3. 取最高分判断是否达到最低阈值
+    if (pool[0].score < kLowThreshold) return false;
 
-    // 4. 按 source 找到对应 provider 拉取
-    for (auto* source : onlineSources_) {
-        if (source && source->sourceId() == best.source) {
-            return source->fetchById(best.id, out);
+    // 4. 按分数降序遍历候选，找到第一个能成功拉取的
+    for (const auto& candidate : pool) {
+        if (candidate.score < kLowThreshold) break;
+        for (auto* source : onlineSources_) {
+            if (source && source->sourceId() == candidate.source) {
+                if (source->fetchById(candidate.id, out)) return true;
+                break;  // 该 source 拉取失败，尝试下一个候选
+            }
         }
     }
     return false;

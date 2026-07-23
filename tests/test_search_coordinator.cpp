@@ -54,13 +54,19 @@ public:
     }
 };
 
-// Fake 在线源，可预设 search 和 fetchById 的行为
+// Fake 在线源，可预设 search 和 fetchById 的行为。
+// 支持两类 fetchById 控制：
+// 1. 全局：fetchByIdOk / lyricData，所有 ID 统一行为
+// 2. 按 ID 精细：fetchByIdResults / lyricDataById 字典，key 对应 SearchResult.id
+//    字典有对应 key 时走精细控制，否则走全局控制。
 class FakeOnlineSource : public LyricSource {
 public:
     std::vector<SearchResult> searchResults;
     bool searchOk = true;
     LyricData lyricData;
     bool fetchByIdOk = true;
+    std::map<std::string, bool> fetchByIdResults;       // id → ok
+    std::map<std::string, LyricData> lyricDataById;     // id → data
     SourceId sid = SourceId::Unknown;
 
     FakeOnlineSource(SourceId id) : sid(id) {}
@@ -73,7 +79,14 @@ public:
         out = searchResults;
         return !out.empty();
     }
-    bool fetchById(const std::string&, LyricData& out) override {
+    bool fetchById(const std::string& id, LyricData& out) override {
+        auto it = fetchByIdResults.find(id);
+        if (it != fetchByIdResults.end()) {
+            if (!it->second) return false;
+            auto dit = lyricDataById.find(id);
+            if (dit != lyricDataById.end()) out = dit->second;
+            return true;
+        }
         if (!fetchByIdOk) return false;
         out = lyricData;
         return true;
@@ -216,6 +229,68 @@ TEST(SearchCoordinator, SearchAllGroupsBySource) {
             EXPECT_GE(g.items[i-1].score, g.items[i].score);
         }
     }
+}
+
+// 最优候选 fetchById 失败 → 回退到次优候选
+TEST(SearchCoordinator, FallbackToSecondCandidate) {
+    FakeTagIO tagIO;
+    FakeFs fs;
+    TagSource tagSource(tagIO);
+    LocalFileSource localSource(fs);
+    SearchPipeline pipeline({&tagSource, &localSource});
+
+    FakeOnlineSource fakeOnline(SourceId::LrcLib);
+    // 两条候选：第一条高分但 fetchById 失败，第二条低分但 fetchById 成功
+    fakeOnline.searchResults = {
+        makeCandidate("dead_id", "晴天", "周杰伦", 269),
+        makeCandidate("live_id", "晴天 (Live)", "周杰伦", 280),
+    };
+
+    // 第一条 fetchById 失败
+    fakeOnline.fetchByIdResults["dead_id"] = false;
+    // 第二条 fetchById 成功
+    fakeOnline.fetchByIdResults["live_id"] = true;
+    LyricLine l; l.timeMs = 2000; l.text = "fallback lyric";
+    fakeOnline.lyricDataById["live_id"].lines = {l};
+
+    Matcher matcher;
+    SearchCoordinator coordinator(&pipeline, {&fakeOnline}, matcher);
+
+    TrackMeta track;
+    track.title = "晴天";
+    track.artist = "周杰伦";
+    track.lengthMs = 269000;
+
+    LyricData out;
+    ASSERT_TRUE(coordinator.resolve(track, out));
+    EXPECT_EQ(out.lines[0].text, "fallback lyric");
+}
+
+// 所有候选 fetchById 均失败 → 返回 false
+TEST(SearchCoordinator, AllCandidatesFetchByIdFail) {
+    FakeTagIO tagIO;
+    FakeFs fs;
+    TagSource tagSource(tagIO);
+    LocalFileSource localSource(fs);
+    SearchPipeline pipeline({&tagSource, &localSource});
+
+    FakeOnlineSource fakeOnline(SourceId::LrcLib);
+    fakeOnline.searchResults = {
+        makeCandidate("dead1", "晴天", "周杰伦", 269),
+        makeCandidate("dead2", "晴天 (Live)", "周杰伦", 280),
+    };
+    fakeOnline.fetchByIdOk = false;  // 全部失败
+
+    Matcher matcher;
+    SearchCoordinator coordinator(&pipeline, {&fakeOnline}, matcher);
+
+    TrackMeta track;
+    track.title = "晴天";
+    track.artist = "周杰伦";
+    track.lengthMs = 269000;
+
+    LyricData out;
+    EXPECT_FALSE(coordinator.resolve(track, out));
 }
 
 // 某在线源失败 → 不影响其他源
