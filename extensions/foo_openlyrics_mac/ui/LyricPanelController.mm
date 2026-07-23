@@ -572,6 +572,11 @@ static const double kOffsetMax = 30.0;
     openlyrics::AppConfig config = _config;
     int maxFail = config.maxConsecutiveFailures;
 
+    // __block 拷贝避免后台线程直接读写 ivar 形成竞态
+    __block int lrclibFails = _lrclibFailures;
+    __block int neteaseFails = _neteaseFailures;
+    __block int qqmusicFails = _qqmusicFailures;
+
     __weak __typeof__(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         openlyrics::TagIOAdapter tagAdapter;
@@ -617,23 +622,23 @@ static const double kOffsetMax = 30.0;
             if (!src.enabled) continue;
             if (src.key == "tag" || src.key == "local") continue;  // 已由 SearchPipeline 覆盖
 
-            if (src.key == "lrclib" && _lrclibFailures < maxFail) {
+            if (src.key == "lrclib" && lrclibFails < maxFail) {
                 openlyrics::HttpAdapter http;
                 openlyrics::LrcLibProvider lrcLib(http);
                 trySource("online", "在线获取中…", lrcLib, found, resolved, onlineSaved,
-                          _lrclibFailures);
-            } else if (src.key == "netease" && _neteaseFailures < maxFail) {
+                          lrclibFails);
+            } else if (src.key == "netease" && neteaseFails < maxFail) {
                 openlyrics::HttpAdapter http;
                 openlyrics::CryptoAdapter crypto;
                 openlyrics::NetEaseProvider netease(http, crypto);
                 trySource("netease", "正在搜索网易云…", netease, found, resolved, onlineSaved,
-                          _neteaseFailures);
-            } else if (src.key == "qqmusic" && _qqmusicFailures < maxFail) {
+                          neteaseFails);
+            } else if (src.key == "qqmusic" && qqmusicFails < maxFail) {
                 openlyrics::HttpAdapter http;
                 openlyrics::CryptoAdapter crypto;
                 openlyrics::QQMusicProvider qqmusic(http, crypto);
                 trySource("qqmusic", "正在搜索QQ音乐…", qqmusic, found, resolved, onlineSaved,
-                          _qqmusicFailures);
+                          qqmusicFails);
             }
         }
 
@@ -650,6 +655,9 @@ static const double kOffsetMax = 30.0;
             if (strongSelf == nil) return;
             if (strongSelf.trackRequestToken != requestToken) return;
 
+            strongSelf->_lrclibFailures = lrclibFails;
+            strongSelf->_neteaseFailures = neteaseFails;
+            strongSelf->_qqmusicFailures = qqmusicFails;
             strongSelf->_currentLyricData = resolved;
             strongSelf->_currentExtraOffsetMs = config.defaultOffsetMs;
             strongSelf->_currentSourceLabel = sourceLabel;

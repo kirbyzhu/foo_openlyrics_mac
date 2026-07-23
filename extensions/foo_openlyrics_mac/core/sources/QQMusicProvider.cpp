@@ -29,17 +29,8 @@ bool extractFirstSongMid(const std::string& json, std::string& mid) {
     // 找第一个 {
     while (pos < json.size() && json[pos] != '{') ++pos;
     if (pos >= json.size()) return false;
-    // 花括号计数解析完整对象。
-    size_t objStart = pos;
-    int depth = 1;
-    ++pos;
-    while (pos < json.size() && depth > 0) {
-        if (json[pos] == '{') ++depth;
-        else if (json[pos] == '}') --depth;
-        ++pos;
-    }
-    if (depth != 0) return false;
-    std::string songObj = json.substr(objStart, pos - objStart);
+    std::string songObj;
+    if (!jsonExtractObject(json, pos, songObj)) return false;
     return jsonGetString(songObj, "songmid", mid);
 }
 

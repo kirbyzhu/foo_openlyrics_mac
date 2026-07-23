@@ -4,9 +4,7 @@
 #include "net/UrlEncode.h"
 #include "parser/LrcParser.h"
 
-#include <algorithm>
 #include <random>
-#include <sstream>
 
 namespace openlyrics {
 
@@ -26,10 +24,10 @@ const char* const kBase62 =
 const char* const kSearchUrl = "https://music.163.com/weapi/search/get";
 const char* const kLyricUrl = "https://music.163.com/weapi/song/lyric";
 
-// 生成 16 字符随机串（base62）。
+// 生成 16 字符随机串（base62）。thread_local 避免多线程竞态。
 std::string randomKey16() {
     static std::random_device rd;
-    static std::mt19937 gen(rd());
+    thread_local std::mt19937 gen(rd());
     static std::uniform_int_distribution<size_t> dist(0, 61);
     std::string key;
     key.reserve(16);
@@ -61,17 +59,8 @@ bool extractFirstSongId(const std::string& json, int64_t& id) {
     // 找到第一个 {
     while (pos < json.size() && json[pos] != '{') ++pos;
     if (pos >= json.size()) return false;
-    // 使用花括号计数找到匹配的 }，正确容纳嵌套对象。
-    size_t objStart = pos;
-    int depth = 1;
-    ++pos;
-    while (pos < json.size() && depth > 0) {
-        if (json[pos] == '{') ++depth;
-        else if (json[pos] == '}') --depth;
-        ++pos;
-    }
-    if (depth != 0) return false;
-    std::string songObj = json.substr(objStart, pos - objStart);
+    std::string songObj;
+    if (!jsonExtractObject(json, pos, songObj)) return false;
     return jsonGetInt(songObj, "id", id);
 }
 

@@ -1,36 +1,18 @@
 #include "sources/LocalFileSource.h"
+#include "internal/PathUtils.h"
 
 #include <algorithm>
 #include <cctype>
 
 namespace openlyrics {
 
+using internal::dirOf;
+using internal::basenameOf;
+using internal::toLower;
+using internal::ciEquals;
+using internal::endsWithCi;
+
 namespace {
-
-std::string DirOf(const std::string& path) {
-    const size_t slash = path.find_last_of('/');
-    return (slash == std::string::npos) ? std::string() : path.substr(0, slash + 1);
-}
-
-std::string BasenameOf(const std::string& path) {
-    const size_t slash = path.find_last_of('/');
-    return (slash == std::string::npos) ? path : path.substr(slash + 1);
-}
-
-std::string ToLower(const std::string& s) {
-    std::string out = s;
-    for (char& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return out;
-}
-
-bool CiEquals(const std::string& a, const std::string& b) {
-    return ToLower(a) == ToLower(b);
-}
-
-bool EndsWithCi(const std::string& lowerS, const std::string& lowerSuffix) {
-    if (lowerSuffix.size() > lowerS.size()) return false;
-    return lowerS.compare(lowerS.size() - lowerSuffix.size(), lowerSuffix.size(), lowerSuffix) == 0;
-}
 
 // 模糊匹配阶段一个候选目录条目的排序信息，见 fetch() 里 Step 2 的排序规则 (a)-(d)。
 struct FuzzyCandidate {
@@ -87,8 +69,8 @@ std::string NormalizeForComparator(const std::string& s) {
 }  // namespace
 
 bool LocalFileSource::fetch(const TrackMeta& track, LyricData& out) {
-    const std::string dir = DirOf(track.path);
-    const std::string audioBase = BasenameOf(stripExtension(track.path));
+    const std::string dir = dirOf(track.path);
+    const std::string audioBase = basenameOf(LocalFileSource::stripExtension(track.path));
     const std::vector<std::string> entries = fs_.listDirectory(dir);
     if (entries.empty()) return false;
 
@@ -107,7 +89,7 @@ bool LocalFileSource::fetch(const TrackMeta& track, LyricData& out) {
         for (const char* ext : kExts) {
             const std::string target = candidate + ext;
             for (const std::string& entry : entries) {
-                if (!CiEquals(entry, target)) continue;
+                if (!ciEquals(entry, target)) continue;
                 std::string text;
                 if (fs_.readFile(dir + entry, text) && !text.empty()) {
                     out = LrcParser::parse(text);
@@ -126,11 +108,11 @@ bool LocalFileSource::fetch(const TrackMeta& track, LyricData& out) {
 
     std::vector<FuzzyCandidate> matches;
     for (const std::string& entry : entries) {
-        const std::string lowerEntry = ToLower(entry);
+        const std::string lowerEntry = toLower(entry);
         bool isLrc;
-        if (EndsWithCi(lowerEntry, ".lrc")) {
+        if (endsWithCi(lowerEntry, ".lrc")) {
             isLrc = true;
-        } else if (EndsWithCi(lowerEntry, ".txt")) {
+        } else if (endsWithCi(lowerEntry, ".txt")) {
             isLrc = false;
         } else {
             continue;

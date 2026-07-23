@@ -79,7 +79,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/platform/ConfigAdapter.mm
     extensions/foo_openlyrics_mac/ui/PreferencesViewController.mm
     extensions/foo_openlyrics_mac/ui/DesktopLyricsController.mm
-    PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+    PROPERTIES COMPILE_FLAGS "-fobjc-arc"
   )
   target_include_directories(foo_openlyrics PRIVATE
     # class-suffix.h、stdafx.h
@@ -125,6 +125,7 @@ add_executable(core_tests
   tests/test_netease_provider.cpp
   tests/test_qqmusic_provider.cpp
   tests/test_app_config.cpp
+  tests/test_base64.cpp
 )
 target_link_libraries(core_tests PRIVATE openlyrics_core GTest::gtest_main)
 

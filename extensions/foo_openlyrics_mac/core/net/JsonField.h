@@ -11,4 +11,7 @@ bool jsonGetInt(const std::string& json, const std::string& key, int64_t& out);
 // 值为 JSON 对象 → 取其原始文本（不含外层引号）写入 out 返回 true；否则 false。
 // 可用于链式取值：jsonGetObject(resp, "lrc", obj) → jsonGetString(obj, "lyric", text)。
 bool jsonGetObject(const std::string& json, const std::string& key, std::string& out);
+// 从 json[pos] 开始提取完整 JSON 对象（正确处理字符串内花括号）。
+// pos 更新为对象 } 之后的位置，out 接收原始文本（不含外层）。成功返回 true。
+bool jsonExtractObject(const std::string& json, size_t& pos, std::string& out);
 }

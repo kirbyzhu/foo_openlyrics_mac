@@ -96,6 +96,91 @@ TEST(JsonFieldTest, RealisticLrcLibShapedObject) {
     EXPECT_FALSE(jsonGetString(json, "id", out));  // number, not string
 }
 
+TEST(JsonFieldTest, GetIntPositive) {
+    int64_t out = 0;
+    EXPECT_TRUE(jsonGetInt(R"({"v":42})", "v", out));
+    EXPECT_EQ(out, 42);
+}
+
+TEST(JsonFieldTest, GetIntNegative) {
+    int64_t out = 0;
+    EXPECT_TRUE(jsonGetInt(R"({"v":-128})", "v", out));
+    EXPECT_EQ(out, -128);
+}
+
+TEST(JsonFieldTest, GetIntZero) {
+    int64_t out = 1;
+    EXPECT_TRUE(jsonGetInt(R"({"v":0})", "v", out));
+    EXPECT_EQ(out, 0);
+}
+
+TEST(JsonFieldTest, GetIntLarge) {
+    int64_t out = 0;
+    EXPECT_TRUE(jsonGetInt(R"({"v":9223372036854775807})", "v", out));
+    EXPECT_EQ(out, INT64_MAX);
+}
+
+TEST(JsonFieldTest, GetIntOverflowReturnsFalse) {
+    int64_t out = 0;
+    EXPECT_FALSE(jsonGetInt(R"({"v":99999999999999999999})", "v", out));
+}
+
+TEST(JsonFieldTest, GetIntNotANumberReturnsFalse) {
+    int64_t out = 0;
+    EXPECT_FALSE(jsonGetInt(R"({"v":"hello"})", "v", out));
+}
+
+TEST(JsonFieldTest, GetIntMissingKeyReturnsFalse) {
+    int64_t out = 0;
+    EXPECT_FALSE(jsonGetInt(R"({"x":1})", "v", out));
+}
+
+TEST(JsonFieldTest, GetObjectSuccess) {
+    std::string out;
+    EXPECT_TRUE(jsonGetObject(R"({"o":{"a":1,"b":2}})", "o", out));
+    EXPECT_EQ(out, R"({"a":1,"b":2})");
+}
+
+TEST(JsonFieldTest, GetObjectEmpty) {
+    std::string out;
+    EXPECT_TRUE(jsonGetObject(R"({"o":{}})", "o", out));
+    EXPECT_EQ(out, "{}");
+}
+
+TEST(JsonFieldTest, GetObjectNested) {
+    std::string out;
+    EXPECT_TRUE(jsonGetObject(R"({"o":{"inner":{"x":1}}})", "o", out));
+    EXPECT_EQ(out, R"({"inner":{"x":1}})");
+}
+
+TEST(JsonFieldTest, GetObjectMissingKeyReturnsFalse) {
+    std::string out;
+    EXPECT_FALSE(jsonGetObject(R"({"a":1})", "o", out));
+}
+
+TEST(JsonFieldTest, GetObjectNotAnObjectReturnsFalse) {
+    std::string out;
+    EXPECT_FALSE(jsonGetObject(R"({"o":42})", "o", out));
+}
+
+TEST(JsonFieldTest, ExtractObjectSimple) {
+    std::string json = R"({"a":1,"b":2})";
+    size_t pos = 0;
+    std::string out;
+    EXPECT_TRUE(jsonExtractObject(json, pos, out));
+    EXPECT_EQ(out, json);
+}
+
+TEST(JsonFieldTest, ExtractObjectSkipsStringBraces) {
+    std::string json = R"({"a":"foo{bar}baz","c":1}{"next":2})";
+    size_t pos = 0;
+    std::string out;
+    EXPECT_TRUE(jsonExtractObject(json, pos, out));
+    EXPECT_EQ(out, R"({"a":"foo{bar}baz","c":1})");
+    // pos should point past the first object
+    EXPECT_EQ(json[pos], '{');
+}
+
 TEST(JsonFieldTest, UnknownEscapeKeepsLiteralChar) {
     std::string out;
     EXPECT_TRUE(jsonGetString(R"({"a":"weird \x escape"})", "a", out));

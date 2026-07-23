@@ -39,7 +39,7 @@ bool parseTimeTag(const std::string& body, int64_t& outMs) {
         ss = rest.substr(0, dot);
         frac = rest.substr(dot + 1);
     }
-    if (ss.size() != 2) return false;
+    if (ss.size() < 1 || ss.size() > 2) return false;
     for (char c : ss) if (!std::isdigit((unsigned char)c)) return false;
     for (char c : frac) if (!std::isdigit((unsigned char)c)) return false;
 

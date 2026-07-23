@@ -227,6 +227,57 @@ TEST(LocalFileSource, NoFuzzyMatchWhenTitleNotContainedAnywhere) {
     EXPECT_FALSE(source.fetch(track, out));
 }
 
+// --- stripExtension / normalize 单元测试 ---
+
+TEST(LocalFileSource, StripExtensionNoExtension) {
+    EXPECT_EQ(LocalFileSource::stripExtension("/music/album/track"), "/music/album/track");
+}
+
+TEST(LocalFileSource, StripExtensionSimple) {
+    EXPECT_EQ(LocalFileSource::stripExtension("/music/album/track.mp3"), "/music/album/track");
+}
+
+TEST(LocalFileSource, StripExtensionMultipleDots) {
+    // 只去掉最后一个 . 之后的部分
+    EXPECT_EQ(LocalFileSource::stripExtension("/music/album/01. Song Title.mp3"),
+              "/music/album/01. Song Title");
+}
+
+TEST(LocalFileSource, StripExtensionDirectoryOnlyPath) {
+    // 文件名部分无 '.'，原样返回
+    EXPECT_EQ(LocalFileSource::stripExtension("/music/album/"), "/music/album/");
+}
+
+TEST(LocalFileSource, StripExtensionHiddenFile) {
+    // 最后一个 . 之后的部分被去掉，包括 .hidden 文件的 "扩展名"
+    EXPECT_EQ(LocalFileSource::stripExtension("/music/.hidden"), "/music/");
+}
+
+TEST(LocalFileSource, NormalizeEmpty) {
+    EXPECT_EQ(LocalFileSource::normalize(""), "");
+}
+
+TEST(LocalFileSource, NormalizeAlreadyClean) {
+    EXPECT_EQ(LocalFileSource::normalize("hello123"), "hello123");
+}
+
+TEST(LocalFileSource, NormalizeUppercaseAndPunctuation) {
+    EXPECT_EQ(LocalFileSource::normalize("Hello, World! 123"), "helloworld123");
+}
+
+TEST(LocalFileSource, NormalizeCjkOnly) {
+    // CJK 字符保留
+    EXPECT_EQ(LocalFileSource::normalize("后来"), "后来");
+}
+
+TEST(LocalFileSource, NormalizePunctuationOnlyBecomesEmpty) {
+    EXPECT_EQ(LocalFileSource::normalize(" -.,!@#$%^&*() "), "");
+}
+
+TEST(LocalFileSource, NormalizeMixedScript) {
+    EXPECT_EQ(LocalFileSource::normalize("Alan Walker - Faded (Remix)"), "alanwalkerfadedremix");
+}
+
 TEST(LocalFileSource, FuzzyMatchesChineseTitle) {
     // UTF-8 中文标题在标准化后应保留多字节字符，并可用于模糊匹配。
     // 文件名中包含中文标题，即使大小写/艺术家格式不同，也应通过标准化子串匹配命中。

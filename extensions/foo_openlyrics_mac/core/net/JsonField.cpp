@@ -1,6 +1,7 @@
 #include "JsonField.h"
 
 #include <cstdint>
+#include <climits>
 
 namespace openlyrics {
 
@@ -276,7 +277,9 @@ bool jsonGetInt(const std::string& json, const std::string& key, int64_t& out) {
         }
         int64_t val = 0;
         while (end < json.size() && json[end] >= '0' && json[end] <= '9') {
-            val = val * 10 + (json[end] - '0');
+            int digit = json[end] - '0';
+            if (val > (INT64_MAX - digit) / 10) return false;
+            val = val * 10 + digit;
             ++end;
         }
         if (end == valueStart || (negative && end == valueStart + 1)) return false;
@@ -293,6 +296,16 @@ bool jsonGetObject(const std::string& json, const std::string& key, std::string&
     size_t end = skipValue(json, valueStart);
     if (end == std::string::npos) return false;
     out = json.substr(valueStart, end - valueStart);
+    return true;
+}
+
+bool jsonExtractObject(const std::string& json, size_t& pos, std::string& out) {
+    pos = skipWhitespace(json, pos);
+    if (pos >= json.size() || json[pos] != '{') return false;
+    size_t end = skipValue(json, pos);
+    if (end == std::string::npos) return false;
+    out = json.substr(pos, end - pos);
+    pos = end;
     return true;
 }
 

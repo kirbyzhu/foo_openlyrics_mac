@@ -2,7 +2,7 @@
 #include "net/UrlEncode.h"
 #include "net/JsonField.h"
 #include "parser/LrcParser.h"
-#include <cstdlib>
+
 
 namespace openlyrics {
 
@@ -71,16 +71,10 @@ bool LrcLibProvider::search(const std::string& query, std::vector<SearchResult>&
             ++pos;
         if (pos >= body.size() || body[pos] == ']') break;
 
-        // 找当前对象的完整 {} 块（花括号计数）
+        // 找当前对象的完整 {} 块（正确处理字符串内花括号）
         if (body[pos] != '{') return false;
-        size_t objStart = pos;
-        int depth = 0;
-        while (pos < body.size()) {
-            if (body[pos] == '{') ++depth;
-            else if (body[pos] == '}') { --depth; if (depth == 0) { ++pos; break; } }
-            ++pos;
-        }
-        std::string obj(body, objStart, pos - objStart);
+        std::string obj;
+        if (!jsonExtractObject(body, pos, obj)) break;
 
         SearchResult sr;
         // id 可能为 int，用 jsonGetInt 读取

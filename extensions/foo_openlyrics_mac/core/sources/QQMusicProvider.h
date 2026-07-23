@@ -13,9 +13,6 @@ public:
     bool fetch(const TrackMeta& track, LyricData& out) override;
 
 private:
-    // Base64 解码（内联实现，不依赖外部库）。
-    static std::string base64Decode(const std::string& s);
-
     HttpClient& http_;
     CryptoPort& crypto_;
 };

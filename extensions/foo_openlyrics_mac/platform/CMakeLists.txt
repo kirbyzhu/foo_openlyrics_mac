@@ -73,7 +73,7 @@ target_include_directories(fb2k_sdk PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(fb2k_sdk PUBLIC cxx_std_17)
 
 # Obj-C++/Obj-C 源统一开 ARC
-set_source_files_properties(${FB2K_SDK_OBJC_SRC} PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+set_source_files_properties(${FB2K_SDK_OBJC_SRC} PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 
 target_link_libraries(fb2k_sdk PUBLIC
   "-framework AppKit"
