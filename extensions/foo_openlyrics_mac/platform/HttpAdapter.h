@@ -14,6 +14,11 @@ public:
     // 全局超时秒数，所有 HttpAdapter 实例共享。默认 10s。
     static void setGlobalTimeout(int seconds);
     static int globalTimeout();
+
+    // 诊断：最近一次请求的 URL/状态码/响应体长度，供调用方日志输出
+    std::string lastUrl;
+    int lastStatus = 0;
+    size_t lastBodyLen = 0;
 };
 
 }  // namespace openlyrics
