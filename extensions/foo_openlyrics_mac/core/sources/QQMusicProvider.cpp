@@ -103,9 +103,8 @@ bool QQMusicProvider::extractSongList(const std::string& json, std::vector<Searc
     ++pos;  // 跳过 [
 
     for (int i = 0; i < limit; ++i) {
-        while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' ||
-                                      json[pos] == '\n' || json[pos] == '\r' || json[pos] == ','))
-            ++pos;
+        // 宽松跳过：与 NetEase parse 一致，跳过任意非 '{' 非 ']' 字符
+        while (pos < json.size() && json[pos] != '{' && json[pos] != ']') ++pos;
         if (pos >= json.size() || json[pos] == ']') break;
         if (json[pos] != '{') return false;
 

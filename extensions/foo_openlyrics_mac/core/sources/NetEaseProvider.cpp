@@ -45,18 +45,18 @@ std::string reverse(const std::string& s) {
 }
 
 // 从 JSON 数组中提取多条歌曲对象。pos 初始指向 '['，结束时指向 ']' 之后。
+// 使用宽松解析：跳过任意字符直到遇到 '{' 或 ']'，兼容不同服务端 JSON 格式。
 bool extractSongsArray(const std::string& json, size_t& pos,
                        std::vector<std::string>& out, int limit) {
-    // pos 应指向 '['
+    // pos 应指向 '[' 之后的首个字符
     while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' ||
                                   json[pos] == '\n' || json[pos] == '\r' || json[pos] == ':'))
         ++pos;
     if (pos >= json.size() || json[pos] != '[') return false;
     ++pos;  // 跳过 [
     for (int i = 0; i < limit; ++i) {
-        while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' ||
-                                      json[pos] == '\n' || json[pos] == '\r' || json[pos] == ','))
-            ++pos;
+        // 宽松跳过：与旧 extractFirstSongId 保持一致，跳过任意非 '{' 非 ']' 字符
+        while (pos < json.size() && json[pos] != '{' && json[pos] != ']') ++pos;
         if (pos >= json.size() || json[pos] == ']') break;
         if (json[pos] != '{') return false;
         std::string obj;
