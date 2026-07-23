@@ -160,7 +160,7 @@ TEST(LrcLibProvider, SearchHit) {
     std::vector<SearchResult> results;
     ASSERT_TRUE(provider.search("测试", results));
     ASSERT_EQ(results.size(), 1u);
-    EXPECT_EQ(results[0].id, 123);
+    EXPECT_EQ(results[0].id, "123");
     EXPECT_EQ(results[0].trackName, "测试歌曲");
     EXPECT_EQ(results[0].artistName, "歌手");
     EXPECT_EQ(results[0].albumName, "专辑");
@@ -203,8 +203,8 @@ TEST(LrcLibProvider, SearchMultipleResults) {
     std::vector<SearchResult> results;
     ASSERT_TRUE(provider.search("ab", results));
     ASSERT_EQ(results.size(), 2u);
-    EXPECT_EQ(results[0].id, 1);
-    EXPECT_EQ(results[1].id, 2);
+    EXPECT_EQ(results[0].id, "1");
+    EXPECT_EQ(results[1].id, "2");
 }
 
 // --- fetchById() tests ---

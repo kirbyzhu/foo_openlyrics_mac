@@ -11,6 +11,7 @@ class LocalFileSource : public LyricSource {
 public:
     explicit LocalFileSource(FileSystem& fs);
     bool fetch(const TrackMeta& track, LyricData& out) override;
+    SourceId sourceId() const override { return SourceId::Local; }
 
     // 只做匹配、不读内容：命中则把命中歌词文件的完整路径写入 outPath 并返回 true。
     // 与 fetch 共用同一套精确+模糊匹配逻辑，供"删除当前歌词文件"定位真实来源文件用。

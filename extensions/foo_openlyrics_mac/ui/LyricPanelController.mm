@@ -327,7 +327,7 @@ static const double kOffsetMax = 30.0;
         NSMutableArray<NSDictionary *> *arr = [NSMutableArray arrayWithCapacity:results.size()];
         for (const auto& r : results) {
             [arr addObject:@{
-                @"id": @(r.id), @"trackName": [NSString stringWithUTF8String:r.trackName.c_str()],
+                @"id": [NSString stringWithUTF8String:r.id.c_str()], @"trackName": [NSString stringWithUTF8String:r.trackName.c_str()],
                 @"artistName": [NSString stringWithUTF8String:r.artistName.c_str()],
                 @"albumName": [NSString stringWithUTF8String:r.albumName.c_str()],
             }];

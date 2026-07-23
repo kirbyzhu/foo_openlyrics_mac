@@ -79,14 +79,14 @@ bool LrcLibProvider::search(const std::string& query, std::vector<SearchResult>&
         SearchResult sr;
         // id 可能为 int，用 jsonGetInt 读取
         int64_t idVal = 0;
-        if (jsonGetInt(obj, "id", idVal)) sr.id = static_cast<int>(idVal);
+        if (jsonGetInt(obj, "id", idVal)) sr.id = std::to_string(idVal);
         jsonGetString(obj, "trackName", sr.trackName);
         jsonGetString(obj, "artistName", sr.artistName);
         jsonGetString(obj, "albumName", sr.albumName);
         int64_t dur = 0;
         if (jsonGetInt(obj, "duration", dur)) sr.durationSec = static_cast<int>(dur);
 
-        if (sr.id > 0) out.push_back(std::move(sr));
+        if (!sr.id.empty()) out.push_back(std::move(sr));
     }
 
     return !out.empty();
@@ -117,6 +117,21 @@ bool LrcLibProvider::fetchById(int id, LyricData& out) {
     }
 
     return false;
+}
+
+bool LrcLibProvider::search(const TrackMeta& track, std::vector<SearchResult>& out) {
+    std::string query = track.title;
+    if (!track.artist.empty()) {
+        query += " " + track.artist;
+    }
+    return search(query, out);
+}
+
+bool LrcLibProvider::fetchById(const std::string& id, LyricData& out) {
+    char* end = nullptr;
+    long nid = std::strtol(id.c_str(), &end, 10);
+    if (end == id.c_str() || nid <= 0) return false;
+    return fetchById(static_cast<int>(nid), out);
 }
 
 }  // namespace openlyrics

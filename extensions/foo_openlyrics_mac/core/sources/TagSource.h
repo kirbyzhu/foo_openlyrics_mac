@@ -10,6 +10,7 @@ class TagSource : public LyricSource {
 public:
     explicit TagSource(TagIO& tagio);
     bool fetch(const TrackMeta& track, LyricData& out) override;
+    SourceId sourceId() const override { return SourceId::Tag; }
 
 private:
     TagIO& tagio_;
