@@ -14,6 +14,7 @@ class FileSystemAdapter : public FileSystem {
 public:
     bool readFile(const std::string& path, std::string& out) override;
     bool writeFile(const std::string& path, const std::string& data) override;
+    bool removeFile(const std::string& path) override;
     std::vector<std::string> listDirectory(const std::string& dir) override;
 };
 

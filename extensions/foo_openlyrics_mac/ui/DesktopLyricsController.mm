@@ -33,7 +33,10 @@ static const CGFloat kEdgeResizeMargin = 10.0;
 static const NSTimeInterval kSaveDebounce = 0.3;
 
 typedef NS_ENUM(NSInteger, DeskMenuTag) {
-    DeskMenuTagReSearch = 1,
+    DeskMenuTagReSearchLrcLib = 1,
+    DeskMenuTagReSearchNetEase,
+    DeskMenuTagReSearchQQ,
+    DeskMenuTagDeleteLyric,
     DeskMenuTagMaxLines3,
     DeskMenuTagMaxLines4,
     DeskMenuTagMaxLines5,
@@ -95,7 +98,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 
 // 负责鼠标拖拽：普通=移动、Command=缩放、Option=偏移微调、边缘=系统 resize。
 // 任何拖拽模式均显示非透明边框，解决透明窗口无边界反馈问题。
-// 提供右键菜单：重新搜索、显示行数、偏移调整、播放控制。
+// 提供右键菜单：播放控制（一级）、重新搜索（按在线源）、删除当前歌词文件、显示行数、偏移调整。
 @interface DeskLyricsContent : NSView
 @property(nonatomic, copy) void (^onOffsetDelta)(int64_t deltaMs);
 @property(nonatomic, copy) void (^onOffsetCommit)(int64_t totalDeltaMs);
@@ -105,7 +108,8 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 @property(nonatomic, copy) void (^onResizeCommit)(void);
 
 // 右键菜单回调
-@property(nonatomic, copy) void (^onReSearch)(void);
+@property(nonatomic, copy) void (^onReSearchSource)(NSString *sourceKey);
+@property(nonatomic, copy) void (^onDeleteLyric)(void);
 @property(nonatomic, copy) void (^onSetMaxLines)(NSInteger lines);
 @property(nonatomic, copy) void (^onAdjustOffset)(int64_t deltaMs);
 @property(nonatomic, copy) void (^onResetOffset)(void);
@@ -116,6 +120,11 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 
 // 当前显示行数，右键菜单打勾用
 @property(nonatomic, assign) NSInteger currentMaxLines;
+// 当前歌词是否有可删除的本地来源文件，控制"删除当前歌词文件"是否可点
+@property(nonatomic, assign) BOOL canDeleteLyric;
+
+// 在面板中央弹出一条瞬时提示（复用 HUD），短暂显示后自动淡出。
+- (void)showMessage:(NSString *)text;
 @end
 
 @implementation DeskLyricsContent {
@@ -353,6 +362,13 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     [self layoutHud];
 }
 
+- (void)showMessage:(NSString *)text {
+    _hudLabel.stringValue = text;
+    [self layoutHud];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(fadeHud) object:nil];
+    [self performSelector:@selector(fadeHud) withObject:nil afterDelay:0.8];
+}
+
 - (void)layoutHud {
     [_hudLabel sizeToFit];
     NSSize ls = _hudLabel.frame.size;
@@ -380,13 +396,59 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"桌面歌词"];
     menu.autoenablesItems = NO;
 
-    // --- 重新搜索 ---
-    NSMenuItem *research = [[NSMenuItem alloc] initWithTitle:@"重新搜索歌词"
-                                                      action:@selector(handleMenuItem:)
-                                               keyEquivalent:@""];
-    research.tag = DeskMenuTagReSearch;
-    research.target = self;
-    [menu addItem:research];
+    // --- 播放控制（一级菜单）---
+    NSMenuItem *pp = [[NSMenuItem alloc] initWithTitle:@"播放/暂停"
+                                                action:@selector(handleMenuItem:)
+                                         keyEquivalent:@""];
+    pp.tag = DeskMenuTagPlayPause; pp.target = self;
+    NSMenuItem *st = [[NSMenuItem alloc] initWithTitle:@"停止"
+                                                action:@selector(handleMenuItem:)
+                                         keyEquivalent:@""];
+    st.tag = DeskMenuTagStop; st.target = self;
+    NSMenuItem *pr = [[NSMenuItem alloc] initWithTitle:@"上一首"
+                                                action:@selector(handleMenuItem:)
+                                         keyEquivalent:@""];
+    pr.tag = DeskMenuTagPrevious; pr.target = self;
+    NSMenuItem *nx = [[NSMenuItem alloc] initWithTitle:@"下一首"
+                                                action:@selector(handleMenuItem:)
+                                         keyEquivalent:@""];
+    nx.tag = DeskMenuTagNext; nx.target = self;
+    [menu addItem:pp];
+    [menu addItem:st];
+    [menu addItem:pr];
+    [menu addItem:nx];
+
+    [menu addItem:[NSMenuItem separatorItem]];
+
+    // --- 重新搜索歌词（子菜单：三个在线源单选）---
+    NSMenuItem *researchItem = [[NSMenuItem alloc] initWithTitle:@"重新搜索歌词"
+                                                          action:nil
+                                                   keyEquivalent:@""];
+    NSMenu *researchSub = [[NSMenu alloc] initWithTitle:@""];
+    struct { NSString *title; DeskMenuTag tag; } srcRows[] = {
+        {@"LrcLib", DeskMenuTagReSearchLrcLib},
+        {@"网易云音乐", DeskMenuTagReSearchNetEase},
+        {@"QQ音乐", DeskMenuTagReSearchQQ},
+    };
+    for (int i = 0; i < 3; i++) {
+        NSMenuItem *it = [[NSMenuItem alloc] initWithTitle:srcRows[i].title
+                                                    action:@selector(handleMenuItem:)
+                                             keyEquivalent:@""];
+        it.tag = srcRows[i].tag;
+        it.target = self;
+        [researchSub addItem:it];
+    }
+    researchItem.submenu = researchSub;
+    [menu addItem:researchItem];
+
+    // --- 删除当前歌词文件 ---
+    NSMenuItem *deleteItem = [[NSMenuItem alloc] initWithTitle:@"删除当前歌词文件"
+                                                        action:@selector(handleMenuItem:)
+                                                 keyEquivalent:@""];
+    deleteItem.tag = DeskMenuTagDeleteLyric;
+    deleteItem.target = self;
+    deleteItem.enabled = _canDeleteLyric;
+    [menu addItem:deleteItem];
 
     [menu addItem:[NSMenuItem separatorItem]];
 
@@ -445,37 +507,6 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     offsetItem.submenu = offsetSub;
     [menu addItem:offsetItem];
 
-    [menu addItem:[NSMenuItem separatorItem]];
-
-    // --- 播放控制 ---
-    NSMenuItem *playCtrl = [[NSMenuItem alloc] initWithTitle:@"播放控制"
-                                                      action:nil
-                                               keyEquivalent:@""];
-    NSMenu *playSub = [[NSMenu alloc] initWithTitle:@""];
-    NSMenuItem *pp = [[NSMenuItem alloc] initWithTitle:@"播放/暂停"
-                                                action:@selector(handleMenuItem:)
-                                         keyEquivalent:@""];
-    pp.tag = DeskMenuTagPlayPause; pp.target = self;
-    NSMenuItem *st = [[NSMenuItem alloc] initWithTitle:@"停止"
-                                                action:@selector(handleMenuItem:)
-                                         keyEquivalent:@""];
-    st.tag = DeskMenuTagStop; st.target = self;
-    NSMenuItem *pr = [[NSMenuItem alloc] initWithTitle:@"上一首"
-                                                action:@selector(handleMenuItem:)
-                                         keyEquivalent:@""];
-    pr.tag = DeskMenuTagPrevious; pr.target = self;
-    NSMenuItem *nx = [[NSMenuItem alloc] initWithTitle:@"下一首"
-                                                action:@selector(handleMenuItem:)
-                                         keyEquivalent:@""];
-    nx.tag = DeskMenuTagNext; nx.target = self;
-    [playSub addItem:pp];
-    [playSub addItem:st];
-    [playSub addItem:[NSMenuItem separatorItem]];
-    [playSub addItem:pr];
-    [playSub addItem:nx];
-    playCtrl.submenu = playSub;
-    [menu addItem:playCtrl];
-
     NSPoint loc = [self convertPoint:[event locationInWindow] fromView:nil];
     [menu popUpMenuPositioningItem:nil atLocation:loc inView:self];
 }
@@ -483,8 +514,17 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 - (void)handleMenuItem:(NSMenuItem *)sender {
     DeskMenuTag tag = (DeskMenuTag)sender.tag;
     switch (tag) {
-        case DeskMenuTagReSearch:
-            if (_onReSearch) _onReSearch();
+        case DeskMenuTagReSearchLrcLib:
+            if (_onReSearchSource) _onReSearchSource(@"lrclib");
+            break;
+        case DeskMenuTagReSearchNetEase:
+            if (_onReSearchSource) _onReSearchSource(@"netease");
+            break;
+        case DeskMenuTagReSearchQQ:
+            if (_onReSearchSource) _onReSearchSource(@"qqmusic");
+            break;
+        case DeskMenuTagDeleteLyric:
+            if (_onDeleteLyric) _onDeleteLyric();
             break;
         case DeskMenuTagMaxLines3:
         case DeskMenuTagMaxLines4:
@@ -536,6 +576,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     openlyrics::LyricData _currentLyricData;
     int64_t _currentExtraOffsetMs;
     int64_t _trackRequestToken;
+    std::string _currentLyricPath;   // 当前歌词来源的本地文件绝对路径；内嵌标签/未找到时为空
 
     int _lrclibFailures;
     int _neteaseFailures;
@@ -720,13 +761,16 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     };
 
     // 右键菜单回调
-    _contentView.onReSearch = ^{
+    _contentView.onReSearchSource = ^(NSString *sourceKey) {
         __typeof__(self) strongSelf = weakSelf;
         if (strongSelf == nil) return;
-        strongSelf->_lrclibFailures = 0;
-        strongSelf->_neteaseFailures = 0;
-        strongSelf->_qqmusicFailures = 0;
-        [strongSelf handleTrackChanged];
+        [strongSelf reSearchFromSource:sourceKey];
+    };
+
+    _contentView.onDeleteLyric = ^{
+        __typeof__(self) strongSelf = weakSelf;
+        if (strongSelf == nil) return;
+        [strongSelf deleteCurrentLyricFile];
     };
 
     _contentView.onSetMaxLines = ^(NSInteger lines) {
@@ -975,6 +1019,15 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         openlyrics::LyricData resolved;
         bool found = pipeline.resolve(meta, resolved);
         bool onlineSaved = false;
+        // 当前歌词来源的本地文件路径：本地文件命中→真实文件；在线抓取并落盘→同名 .lrc；
+        // 内嵌标签命中→保持空（无独立文件可删）。
+        std::string lyricPath;
+        if (found) {
+            openlyrics::LyricData tagProbe;
+            if (!tagSource.fetch(meta, tagProbe)) {
+                localSource.resolvePath(meta, lyricPath);
+            }
+        }
 
         if (!found) {
             auto trySource = [&](auto& provider, int& failures) -> bool {
@@ -984,6 +1037,9 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
                     resolved = data; found = true; failures = 0;
                     openlyrics::LyricStore store(fsAdapter);
                     onlineSaved = store.save(meta, data);
+                    if (onlineSaved) {
+                        lyricPath = openlyrics::LocalFileSource::stripExtension(meta.path) + ".lrc";
+                    }
                     return true;
                 }
                 ++failures;
@@ -1025,9 +1081,91 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
             strongSelf->_qqmusicFailures = qqmusicFails;
             strongSelf->_currentLyricData = resolved;
             strongSelf->_currentExtraOffsetMs = config.defaultOffsetMs;
+            strongSelf->_currentLyricPath = lyricPath;
+            strongSelf->_contentView.canDeleteLyric = !lyricPath.empty();
             [strongSelf->_lyricView setLyricData:resolved];
         });
     });
+}
+
+#pragma mark - 按源重新搜索 / 删除歌词文件
+
+// 用户从右键菜单指定某一在线源重新搜索：忽略 enabled 与失败计数（显式操作优先），
+// 命中则覆盖写入同名 .lrc 并刷新显示；未命中弹瞬时 HUD 提示，保留原有歌词。
+- (void)reSearchFromSource:(NSString *)sourceKey {
+    if (!_started || !_config.deskLyrics.enabled) return;
+    PlaybackHub *hub = [PlaybackHub sharedHub];
+    if (![hub hasTrack]) return;
+
+    _trackRequestToken += 1;
+    const int64_t requestToken = _trackRequestToken;
+    openlyrics::TrackMeta meta = [hub currentTrack];
+    std::string key = sourceKey.UTF8String;
+
+    __weak __typeof__(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        openlyrics::LyricData data;
+        bool found = false;
+        if (key == "lrclib") {
+            openlyrics::HttpAdapter http;
+            openlyrics::LrcLibProvider lrcLib(http);
+            found = lrcLib.fetch(meta, data);
+        } else if (key == "netease") {
+            openlyrics::HttpAdapter http;
+            openlyrics::CryptoAdapter crypto;
+            openlyrics::NetEaseProvider netease(http, crypto);
+            found = netease.fetch(meta, data);
+        } else if (key == "qqmusic") {
+            openlyrics::HttpAdapter http;
+            openlyrics::CryptoAdapter crypto;
+            openlyrics::QQMusicProvider qqmusic(http, crypto);
+            found = qqmusic.fetch(meta, data);
+        }
+
+        std::string savedPath;
+        if (found) {
+            openlyrics::FileSystemAdapter fsAdapter;
+            openlyrics::LyricStore store(fsAdapter);
+            // 覆盖写入音频同目录同名 .lrc，替换掉可能存在的错误歌词。
+            if (store.forceSave(meta, data)) {
+                savedPath = openlyrics::LocalFileSource::stripExtension(meta.path) + ".lrc";
+            }
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __typeof__(self) strongSelf = weakSelf;
+            if (strongSelf == nil) return;
+            if (strongSelf->_trackRequestToken != requestToken) return;
+            if (found) {
+                strongSelf->_currentLyricData = data;
+                strongSelf->_currentExtraOffsetMs = strongSelf->_config.defaultOffsetMs;
+                strongSelf->_currentLyricPath = savedPath;
+                strongSelf->_contentView.canDeleteLyric = !savedPath.empty();
+                [strongSelf->_lyricView setLyricData:data];
+            } else {
+                [strongSelf->_contentView showMessage:@"未找到歌词"];
+            }
+        });
+    });
+}
+
+// 删除当前歌词来源文件（用户判断显示错误时）。按既定设计不弹确认，删除后清空显示，
+// 等待用户手动重新搜索。删除后重置失败计数，使下次重搜不被计数门槛拦截。
+- (void)deleteCurrentLyricFile {
+    if (_currentLyricPath.empty()) return;
+
+    openlyrics::FileSystemAdapter fsAdapter;
+    bool ok = fsAdapter.removeFile(_currentLyricPath);
+
+    _currentLyricPath.clear();
+    _currentLyricData = openlyrics::LyricData{};
+    _currentExtraOffsetMs = 0;
+    _lrclibFailures = 0;
+    _neteaseFailures = 0;
+    _qqmusicFailures = 0;
+    _contentView.canDeleteLyric = NO;
+    [_lyricView setLyricData:_currentLyricData];
+    [_contentView showMessage:ok ? @"已删除歌词文件" : @"删除失败"];
 }
 
 #pragma mark - 同步 tick

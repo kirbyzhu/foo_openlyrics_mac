@@ -12,6 +12,10 @@ public:
     explicit LocalFileSource(FileSystem& fs);
     bool fetch(const TrackMeta& track, LyricData& out) override;
 
+    // 只做匹配、不读内容：命中则把命中歌词文件的完整路径写入 outPath 并返回 true。
+    // 与 fetch 共用同一套精确+模糊匹配逻辑，供"删除当前歌词文件"定位真实来源文件用。
+    bool resolvePath(const TrackMeta& track, std::string& outPath);
+
     // 去掉路径最后一段（文件名部分）的扩展名：取最后一个 '/' 之后的子串中
     // 最后一个 '.'；若该子串无 '.'，视为无扩展名，原样返回整条路径。
     static std::string stripExtension(const std::string& path);

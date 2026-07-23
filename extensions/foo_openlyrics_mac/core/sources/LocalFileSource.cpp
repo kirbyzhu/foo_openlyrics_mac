@@ -68,7 +68,7 @@ std::string NormalizeForComparator(const std::string& s) {
 }
 }  // namespace
 
-bool LocalFileSource::fetch(const TrackMeta& track, LyricData& out) {
+bool LocalFileSource::resolvePath(const TrackMeta& track, std::string& outPath) {
     const std::string dir = dirOf(track.path);
     const std::string audioBase = basenameOf(LocalFileSource::stripExtension(track.path));
     const std::vector<std::string> entries = fs_.listDirectory(dir);
@@ -77,7 +77,7 @@ bool LocalFileSource::fetch(const TrackMeta& track, LyricData& out) {
     static const char* kExts[] = {".lrc", ".txt"};
 
     // Step 1：精确/模式候选，大小写不敏感——真实文件系统区分大小写，逐条目做
-    // 大小写归一比较，命中后用目录里的真实条目名去读文件（而不是拼出来的候选名）。
+    // 大小写归一比较，命中后用目录里的真实条目名去拼路径（而不是拼出来的候选名）。
     std::vector<std::string> candidates;
     if (!audioBase.empty()) candidates.push_back(audioBase);
     if (!track.title.empty()) candidates.push_back(track.title);
@@ -90,11 +90,8 @@ bool LocalFileSource::fetch(const TrackMeta& track, LyricData& out) {
             const std::string target = candidate + ext;
             for (const std::string& entry : entries) {
                 if (!ciEquals(entry, target)) continue;
-                std::string text;
-                if (fs_.readFile(dir + entry, text) && !text.empty()) {
-                    out = LrcParser::parse(text);
-                    return true;
-                }
+                outPath = dir + entry;
+                return true;
             }
         }
     }
@@ -132,9 +129,18 @@ bool LocalFileSource::fetch(const TrackMeta& track, LyricData& out) {
     if (matches.empty()) return false;
 
     std::sort(matches.begin(), matches.end(), RankFuzzyCandidate);
+    outPath = dir + matches.front().entry;
+    return true;
+}
+
+bool LocalFileSource::fetch(const TrackMeta& track, LyricData& out) {
+    // 复用 resolvePath 完成匹配，命中后读取并解析；空文件视为未命中，
+    // 与 resolvePath 保持"命中≠内容非空"的边界差异（删除只需路径，故读文件失败不影响定位）。
+    std::string path;
+    if (!resolvePath(track, path)) return false;
 
     std::string text;
-    if (fs_.readFile(dir + matches.front().entry, text) && !text.empty()) {
+    if (fs_.readFile(path, text) && !text.empty()) {
         out = LrcParser::parse(text);
         return true;
     }

@@ -227,6 +227,55 @@ TEST(LocalFileSource, NoFuzzyMatchWhenTitleNotContainedAnywhere) {
     EXPECT_FALSE(source.fetch(track, out));
 }
 
+// --- resolvePath：只定位命中文件的完整路径，不读内容（供"删除当前歌词文件"用）---
+
+TEST(LocalFileSource, ResolvePathReturnsExactMatchFullPath) {
+    FakeFs fs;
+    fs.files["/music/album/01 - track.lrc"] = "[00:01.00]hi";
+    LocalFileSource source(fs);
+    TrackMeta track;
+    track.path = "/music/album/01 - track.mp3";
+    std::string path;
+    ASSERT_TRUE(source.resolvePath(track, path));
+    EXPECT_EQ(path, "/music/album/01 - track.lrc");
+}
+
+TEST(LocalFileSource, ResolvePathReturnsFuzzyMatchFullPath) {
+    FakeFs fs;
+    fs.files["/m/MLTR/Michael Learns To Rock - I Still Carry On.lrc"] = "[00:03.00]fuzzy hit";
+    LocalFileSource source(fs);
+    TrackMeta track;
+    track.title = "i still carry on";
+    track.artist = "MLTR";
+    track.path = "/m/MLTR/MLTR- i still carry on.mp3";
+    std::string path;
+    ASSERT_TRUE(source.resolvePath(track, path));
+    EXPECT_EQ(path, "/m/MLTR/Michael Learns To Rock - I Still Carry On.lrc");
+}
+
+TEST(LocalFileSource, ResolvePathMissReturnsFalse) {
+    FakeFs fs;
+    LocalFileSource source(fs);
+    TrackMeta track;
+    track.path = "/music/album/01 - track.mp3";
+    std::string path;
+    EXPECT_FALSE(source.resolvePath(track, path));
+}
+
+TEST(LocalFileSource, ResolvePathSucceedsEvenWhenFileEmpty) {
+    // resolvePath 只做匹配、不看内容：空文件也应能定位到（fetch 才会因空内容判未命中）。
+    FakeFs fs;
+    fs.files["/music/album/01 - track.lrc"] = "";
+    LocalFileSource source(fs);
+    TrackMeta track;
+    track.path = "/music/album/01 - track.mp3";
+    std::string path;
+    ASSERT_TRUE(source.resolvePath(track, path));
+    EXPECT_EQ(path, "/music/album/01 - track.lrc");
+    LyricData out;
+    EXPECT_FALSE(source.fetch(track, out));
+}
+
 // --- stripExtension / normalize 单元测试 ---
 
 TEST(LocalFileSource, StripExtensionNoExtension) {

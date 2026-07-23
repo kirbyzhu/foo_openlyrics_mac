@@ -36,6 +36,16 @@ bool FileSystemAdapter::writeFile(const std::string& path, const std::string& da
     return f.good();
 }
 
+// 删除单个文件。用带 error_code 的 std::filesystem::remove：文件被删返回 true；
+// 文件本不存在时 remove 返回 false 且 ec 未置位，此处也视为成功（目标已不存在）。
+// 仅当发生真正的文件系统错误（ec 置位）才返回 false。
+bool FileSystemAdapter::removeFile(const std::string& path) {
+    if (path.empty()) return false;
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    return !ec;
+}
+
 // Task 5 follow-up：LocalFileSource 目录扫描 + 模糊匹配依赖的端口实现。用带 error_code
 // 重载的 std::filesystem::directory_iterator——目录不存在/不可读时 ec 被置位，
 // directory_iterator(dir, ec) 此时退化为 end 迭代器，range-for 天然是空循环，
