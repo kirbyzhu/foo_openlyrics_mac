@@ -1,4 +1,5 @@
 #import "CryptoAdapter.h"
+#include "rsa_openssl.h"
 
 #import <Foundation/Foundation.h>
 #include <CommonCrypto/CommonCryptor.h>
@@ -6,7 +7,6 @@
 #include <Security/Security.h>
 
 #include <cstring>
-#include <dlfcn.h>
 #include <iomanip>
 #include <sstream>
 #include <vector>
@@ -98,93 +98,16 @@ std::string buildRSAPublicKeyDER(const std::string& modulus,
     return result;
 }
 
-// 通过 dlopen 加载系统 libcrypto 的 BIGNUM 函数做裸 RSA 模幂运算。
-// macOS kSecKeyAlgorithmRSAEncryptionRaw 实为 PKCS1 v1.5 填充，不适用于 NetEase weapi。
-namespace {
-
-struct BnCtx {
-    void* m;
-    BnCtx() : m(nullptr) {}
-    ~BnCtx() { if (m) dlclose(m); }
-    bool load() {
-        if (m) return true;
-        // macOS /usr/lib/libcrypto.dylib 禁止 dlopen（非稳定 ABI），只用 Homebrew 版号路径。
-        m = dlopen("/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib", RTLD_LAZY);
-        return m != nullptr;
-    }
-    void* sym(const char* name) {
-        return m ? dlsym(m, name) : nullptr;
-    }
-};
-
-std::string rsaRawViaLibcrypto(const std::string& plain,
-                                const std::string& modulusHex,
-                                const std::string& exponentHex) {
-    std::string modBytes = hexDecode(modulusHex);
-    std::string expBytes = hexDecode(exponentHex);
-    if (modBytes.empty() || expBytes.empty() || plain.empty()) return {};
-    if (plain.size() > modBytes.size()) return {};
-
-    static BnCtx ctx;
-    if (!ctx.load()) return {};
-
-    typedef void* (*BN_bin2bn_t)(const unsigned char*, int, void*);
-    typedef void* (*BN_new_t)();
-    typedef void  (*BN_free_t)(void*);
-    typedef void* (*BN_CTX_new_t)();
-    typedef void  (*BN_CTX_free_t)(void*);
-    typedef int   (*BN_mod_exp_t)(void*, const void*, const void*, const void*, void*);
-    typedef int   (*BN_bn2bin_t)(const void*, unsigned char*);
-    typedef int   (*BN_num_bytes_t)(const void*);
-
-    auto _BN_bin2bn   = (BN_bin2bn_t)  ctx.sym("BN_bin2bn");
-    auto _BN_new       = (BN_new_t)      ctx.sym("BN_new");
-    auto _BN_free      = (BN_free_t)     ctx.sym("BN_free");
-    auto _BN_CTX_new   = (BN_CTX_new_t)  ctx.sym("BN_CTX_new");
-    auto _BN_CTX_free  = (BN_CTX_free_t) ctx.sym("BN_CTX_free");
-    auto _BN_mod_exp   = (BN_mod_exp_t)  ctx.sym("BN_mod_exp");
-    auto _BN_bn2bin    = (BN_bn2bin_t)   ctx.sym("BN_bn2bin");
-    auto _BN_num_bytes = (BN_num_bytes_t)ctx.sym("BN_num_bytes");
-
-    if (!_BN_bin2bn || !_BN_new || !_BN_free || !_BN_mod_exp ||
-        !_BN_bn2bin || !_BN_num_bytes || !_BN_CTX_new || !_BN_CTX_free)
-        return {};
-
-    void* m = _BN_bin2bn((const unsigned char*)plain.data(), (int)plain.size(), nullptr);
-    void* e = _BN_bin2bn((const unsigned char*)expBytes.data(), (int)expBytes.size(), nullptr);
-    void* n = _BN_bin2bn((const unsigned char*)modBytes.data(), (int)modBytes.size(), nullptr);
-    void* c = _BN_new();
-    void* bnctx = _BN_CTX_new();
-
-    std::string result;
-    if (m && e && n && c && bnctx) {
-        if (_BN_mod_exp(c, m, e, n, bnctx) == 1) {
-            int len = _BN_num_bytes(c);
-            std::string cipherBytes(len, '\0');
-            _BN_bn2bin(c, (unsigned char*)&cipherBytes[0]);
-            size_t expectedLen = modBytes.size();
-            if (cipherBytes.size() < expectedLen) {
-                cipherBytes = std::string(expectedLen - cipherBytes.size(), '\x00') + cipherBytes;
-            }
-            result = hexEncode(cipherBytes);
-        }
-    }
-
-    if (m) _BN_free(m);
-    if (e) _BN_free(e);
-    if (n) _BN_free(n);
-    if (c) _BN_free(c);
-    if (bnctx) _BN_CTX_free(bnctx);
-
-    return result;
-}
-
-}  // namespace
-
 std::string rsaRawEncryptImpl(const std::string& plain,
                                 const std::string& modulusHex,
                                 const std::string& exponentHex) {
-    return rsaRawViaLibcrypto(plain, modulusHex, exponentHex);
+    // rsa_raw_encrypt 的 plain 参数是 hex 字符串，需转换
+    std::string plainHex = hexEncode(plain);
+    char* result = rsa_raw_encrypt(plainHex.c_str(), modulusHex.c_str(), exponentHex.c_str());
+    if (!result) return {};
+    std::string out(result);
+    free(result);
+    return out;
 }
 
 // CCCrypt 通用封装。
