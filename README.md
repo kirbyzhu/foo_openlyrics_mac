@@ -54,9 +54,16 @@ bash Scripts/install-component.sh
 
 ## 致谢
 
-- 功能参考 [foo_openlyrics](https://github.com/jacquesh/foo_openlyrics)（Windows）。
-- 在线歌词来自 [LrcLib](https://lrclib.net/)。
-- macOS 组件构建结构参考 [fb2k-components-mac-suite](https://github.com/JendaT/fb2k-components-mac-suite)。
+本组件在实现中参考、依赖了以下项目与作者，特此致谢。
+
+- **foobar2000 及其 SDK** —— Peter Pawlowski（[foobar2000.org](https://www.foobar2000.org/)）。组件依托 foobar2000 for Mac 的 SDK 构建。
+- **foo_openlyrics**（Windows）—— jacquesh（[GitHub](https://github.com/jacquesh/foo_openlyrics)）。功能形态与交互设计的主要参考。
+- **fb2k-components-mac-suite** —— JendaT（[GitHub](https://github.com/JendaT/fb2k-components-mac-suite)）。macOS 组件的 CMake 构建结构参考。
+- **LrcLib** —— [lrclib.net](https://lrclib.net/)。开放歌词接口，桌面与内嵌面板的默认在线源。
+- **网易云音乐歌词接口** —— weapi 双层 AES-128-CBC 加签与 RSA 裸加密方案，参考社区公开的逆向成果，以 [NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi)（Binaryify）为代表。
+- **QQ 音乐歌词接口** —— 检索与逐词歌词 base64 解码流程，参考社区公开的逆向成果。
+
+在线接口均归各自服务方所有，本组件仅在用户本机按需检索并缓存，不再分发。
 
 ## 许可
 
