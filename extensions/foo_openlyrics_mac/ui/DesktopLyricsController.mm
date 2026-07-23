@@ -31,6 +31,8 @@ static const CGFloat kMinPanelWidth = 200.0;
 static const CGFloat kMinPanelHeight = 60.0;
 static const CGFloat kEdgeResizeMargin = 10.0;
 static const NSTimeInterval kSaveDebounce = 0.3;
+static const CGFloat kCornerRadius = 14.0;      // 面板圆角半径，贴近 macOS 小部件风格
+static const CGFloat kContentInset = 6.0;       // 歌词视图相对面板的内边距，避开圆角
 
 typedef NS_ENUM(NSInteger, DeskMenuTag) {
     DeskMenuTagReSearchLrcLib = 1,
@@ -146,6 +148,12 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 
     NSPoint _dragStartScreenMouse;  // 移动起始鼠标（屏幕坐标）
     NSPoint _dragStartFrameOrigin;  // 移动起始窗口原点
+
+    NSVisualEffectView *_bgView;    // 圆角毛玻璃背景，仅悬停/拖拽时显现
+    NSTrackingArea *_trackingArea;
+    BOOL _hovering;                 // 鼠标悬停中
+    BOOL _interacting;              // 拖拽/缩放/偏移微调进行中
+    BOOL _bgShown;                  // 背景当前是否可见，去抖动画
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -153,6 +161,21 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     if (self != nil) {
         self.wantsLayer = YES;
         self.layer.masksToBounds = YES;
+        self.layer.cornerRadius = kCornerRadius;
+
+        // 毛玻璃背景铺满面板，圆角 + 极细高光描边，随系统外观自适应明暗。
+        _bgView = [[NSVisualEffectView alloc] initWithFrame:self.bounds];
+        _bgView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        _bgView.material = NSVisualEffectMaterialHUDWindow;
+        _bgView.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+        _bgView.state = NSVisualEffectStateActive;
+        _bgView.wantsLayer = YES;
+        _bgView.layer.cornerRadius = kCornerRadius;
+        _bgView.layer.masksToBounds = YES;
+        _bgView.layer.borderWidth = 0.5;
+        _bgView.layer.borderColor = [NSColor colorWithCalibratedWhite:1.0 alpha:0.14].CGColor;
+        _bgView.alphaValue = 0.0;  // 默认全透明，仅悬停/拖拽时淡入
+        [self addSubview:_bgView positioned:NSWindowBelow relativeTo:nil];
 
         _hudLabel = [[NSTextField alloc] initWithFrame:NSZeroRect];
         _hudLabel.editable = NO;
@@ -202,9 +225,51 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     return [self edgesForPoint:point] != DeskEdgeNone;
 }
 
+#pragma mark - 背景显隐（悬停/拖拽）
+
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (_trackingArea != nil) [self removeTrackingArea:_trackingArea];
+    _trackingArea = [[NSTrackingArea alloc]
+        initWithRect:self.bounds
+             options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect
+               owner:self
+            userInfo:nil];
+    [self addTrackingArea:_trackingArea];
+}
+
+- (void)mouseEntered:(NSEvent *)event {
+    (void)event;
+    _hovering = YES;
+    [self updateBackgroundShown];
+}
+
+- (void)mouseExited:(NSEvent *)event {
+    (void)event;
+    _hovering = NO;
+    [self updateBackgroundShown];
+}
+
+// 悬停或交互中任一成立即显现磨玻璃背景，否则回到全透明；带淡入淡出并刷新窗口阴影。
+- (void)updateBackgroundShown {
+    BOOL shouldShow = _hovering || _interacting;
+    if (shouldShow == _bgShown) return;
+    _bgShown = shouldShow;
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+        ctx.duration = 0.18;
+        ctx.allowsImplicitAnimation = YES;
+        self->_bgView.animator.alphaValue = shouldShow ? 1.0 : 0.0;
+    } completionHandler:^{
+        [self.window invalidateShadow];
+    }];
+    [self.window invalidateShadow];
+}
+
 #pragma mark - 拖拽边框
 
 - (void)showDragBorder {
+    _interacting = YES;
+    [self updateBackgroundShown];
     if (_dragBorderVisible) return;
     _dragBorderVisible = YES;
     self.layer.borderWidth = 3.0;
@@ -212,6 +277,8 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 }
 
 - (void)hideDragBorder {
+    _interacting = NO;
+    [self updateBackgroundShown];
     if (!_dragBorderVisible) return;
     _dragBorderVisible = NO;
     self.layer.borderWidth = 0.0;
@@ -691,7 +758,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     _panel.level = NSFloatingWindowLevel;
     _panel.backgroundColor = NSColor.clearColor;
     _panel.opaque = NO;
-    _panel.hasShadow = NO;
+    _panel.hasShadow = YES;  // 圆角毛玻璃卡片投柔和阴影，强化悬浮层次
     _panel.movableByWindowBackground = NO;
     _panel.hidesOnDeactivate = NO;
     _panel.releasedWhenClosed = NO;
@@ -817,7 +884,8 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         if (!pc.is_empty()) pc->start(playback_control::track_command_next);
     };
 
-    _lyricView = [[LyricView alloc] initWithFrame:_contentView.bounds];
+    // 内缩 kContentInset，让歌词文字避开圆角与描边，四周留出均匀留白。
+    _lyricView = [[LyricView alloc] initWithFrame:NSInsetRect(_contentView.bounds, kContentInset, kContentInset)];
     _lyricView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _lyricView.transparentBackground = YES;
     [_contentView addSubview:_lyricView];
