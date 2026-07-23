@@ -6,6 +6,7 @@
 #include <Security/Security.h>
 
 #include <cstring>
+#include <dlfcn.h>
 #include <iomanip>
 #include <sstream>
 #include <vector>
@@ -97,214 +98,31 @@ std::string buildRSAPublicKeyDER(const std::string& modulus,
     return result;
 }
 
-// 用 Security.framework 执行裸 RSA 加密。
-// modulusHex/exponentHex: hex 字符串。
-// plain: 明文字节串。
-// 返回 hex 编码的密文，补齐到 modulus 字节长度。
-// 自包含多精度模幂运算，不依赖 libcrypto。
-// macOS kSecKeyAlgorithmRSAEncryptionRaw 实为 PKCS1 v1.5 填充，不适用于 NetEase 裸 RSA。
+// 通过 dlopen 加载系统 libcrypto 的 BIGNUM 函数做裸 RSA 模幂运算。
+// macOS kSecKeyAlgorithmRSAEncryptionRaw 实为 PKCS1 v1.5 填充，不适用于 NetEase weapi。
 namespace {
 
-using Limb = uint32_t;
-using Double = uint64_t;
-static constexpr int kLimbBits = 32;
-static constexpr Double kLimbMask = 0xFFFFFFFFULL;
-
-// 256 字节 → 64 个 32-bit limb
-static constexpr int kMaxLimbs = 64;
-
-struct BigNum {
-    Limb d[kMaxLimbs];
-    int nlimbs;  // 实际使用的 limb 数
-
-    BigNum() : nlimbs(0) { memset(d, 0, sizeof(d)); }
-
-    // 从大端字节串构造
-    static BigNum fromBytes(const std::string& bytes) {
-        BigNum r;
-        size_t len = bytes.size();
-        int limbIdx = 0;
-        int shift = 0;
-        for (size_t i = len; i > 0; --i) {
-            r.d[limbIdx] |= static_cast<Limb>(static_cast<unsigned char>(bytes[i-1])) << shift;
-            shift += 8;
-            if (shift >= kLimbBits) {
-                shift = 0;
-                ++limbIdx;
-            }
+struct BnCtx {
+    void* m;
+    BnCtx() : m(nullptr) {}
+    ~BnCtx() { if (m) dlclose(m); }
+    bool load() {
+        if (m) return true;
+        // 系统路径优先；Homebrew 路径回退
+        m = dlopen("/usr/lib/libcrypto.dylib", RTLD_LAZY);
+        if (!m) m = dlopen("/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib", RTLD_LAZY);
+        if (!m) {
+            // dlsym 直接试系统路径
+            m = dlopen("/usr/lib/libcrypto.dylib", RTLD_NOW);
         }
-        r.nlimbs = (len + 3) / 4;
-        while (r.nlimbs > 1 && r.d[r.nlimbs-1] == 0) --r.nlimbs;
-        if (r.nlimbs == 0) r.nlimbs = 1;
-        return r;
+        return m != nullptr;
     }
-
-    // 导出为大端字节串（指定长度，左补零）
-    std::string toBytes(int outLen) const {
-        std::string r(outLen, '\0');
-        int bytePos = outLen - 1;
-        for (int i = 0; i < nlimbs && bytePos >= 0; ++i) {
-            Limb v = d[i];
-            for (int b = 0; b < 4 && bytePos >= 0; ++b) {
-                r[bytePos--] = static_cast<char>(v & 0xFF);
-                v >>= 8;
-            }
-        }
-        return r;
+    void* sym(const char* name) {
+        return m ? dlsym(m, name) : nullptr;
     }
-
-    bool isZero() const { return nlimbs == 1 && d[0] == 0; }
 };
 
-// a += b，返回进位
-Limb addTo(BigNum& a, const BigNum& b) {
-    Double carry = 0;
-    int n = std::max(a.nlimbs, b.nlimbs);
-    for (int i = 0; i < n; ++i) {
-        carry += static_cast<Double>(a.d[i]) + b.d[i];
-        a.d[i] = static_cast<Limb>(carry & kLimbMask);
-        carry >>= kLimbBits;
-    }
-    if (carry && n < kMaxLimbs) {
-        a.d[n] = static_cast<Limb>(carry);
-        a.nlimbs = n + 1;
-    } else {
-        a.nlimbs = n;
-        while (a.nlimbs > 1 && a.d[a.nlimbs-1] == 0) --a.nlimbs;
-    }
-    return static_cast<Limb>(carry);
-}
-
-// a -= b，假设 a >= b
-void subFrom(BigNum& a, const BigNum& b) {
-    Double borrow = 0;
-    for (int i = 0; i < a.nlimbs; ++i) {
-        Double sub = static_cast<Double>(b.d[i]) + borrow;
-        if (static_cast<Double>(a.d[i]) < sub) {
-            a.d[i] = static_cast<Limb>(static_cast<Double>(a.d[i]) + (1ULL << kLimbBits) - sub);
-            borrow = 1;
-        } else {
-            a.d[i] = static_cast<Limb>(static_cast<Double>(a.d[i]) - sub);
-            borrow = 0;
-        }
-    }
-    while (a.nlimbs > 1 && a.d[a.nlimbs-1] == 0) --a.nlimbs;
-}
-
-// a >= b ?
-bool ge(const BigNum& a, const BigNum& b) {
-    if (a.nlimbs != b.nlimbs) return a.nlimbs > b.nlimbs;
-    for (int i = a.nlimbs - 1; i >= 0; --i) {
-        if (a.d[i] != b.d[i]) return a.d[i] > b.d[i];
-    }
-    return true;
-}
-
-// a = a * b，高半部分写入 high（用于后续模约简）
-void mulFull(BigNum& a, const BigNum& b) {
-    Limb tmp[kMaxLimbs] = {};
-    int nA = a.nlimbs, nB = b.nlimbs;
-    for (int i = 0; i < nA; ++i) {
-        Double carry = 0;
-        for (int j = 0; j < nB && i + j < kMaxLimbs; ++j) {
-            carry += static_cast<Double>(a.d[i]) * b.d[j] + tmp[i + j];
-            tmp[i + j] = static_cast<Limb>(carry & kLimbMask);
-            carry >>= kLimbBits;
-        }
-        int pos = i + nB;
-        while (carry && pos < kMaxLimbs) {
-            carry += tmp[pos];
-            tmp[pos] = static_cast<Limb>(carry & kLimbMask);
-            carry >>= kLimbBits;
-            ++pos;
-        }
-    }
-    int maxLimb = nA + nB;
-    if (maxLimb > kMaxLimbs) maxLimb = kMaxLimbs;
-    while (maxLimb > 1 && tmp[maxLimb-1] == 0) --maxLimb;
-    memcpy(a.d, tmp, maxLimb * sizeof(Limb));
-    a.nlimbs = maxLimb;
-}
-
-// a = a mod n（长除法）
-void mod(BigNum& a, const BigNum& n) {
-    if (!ge(a, n)) return;
-    // 简单减法循环——对大数效率低但我们的使用场景中 a 最多是 n 的两倍（乘法后约简）
-    // 实际上乘法后 a 可能远大于 n，需要用更高效的方法
-    // 对于 4096 位 ÷ 2048 位，使用二进制约简
-    int nBits = n.nlimbs * kLimbBits;
-    while (nBits > 0 && (n.d[(nBits-1)/kLimbBits] >> ((nBits-1) % kLimbBits)) == 0) --nBits;
-    if (nBits == 0) return;
-
-    BigNum shifted = n;
-    int aBits = a.nlimbs * kLimbBits;
-    while (aBits > 0 && (a.d[(aBits-1)/kLimbBits] >> ((aBits-1) % kLimbBits)) == 0) --aBits;
-
-    // 左移 n 使之对齐 a
-    int shift = aBits - nBits;
-    if (shift < 0) return;
-    int limbShift = shift / kLimbBits;
-    int bitShift = shift % kLimbBits;
-    BigNum aligned;
-    aligned.nlimbs = n.nlimbs + limbShift + (bitShift > 0 ? 1 : 0);
-    if (bitShift == 0) {
-        for (int i = 0; i < n.nlimbs; ++i) aligned.d[i + limbShift] = n.d[i];
-    } else {
-        Double carry = 0;
-        for (int i = 0; i < n.nlimbs; ++i) {
-            Double v = (static_cast<Double>(n.d[i]) << bitShift) | carry;
-            aligned.d[i + limbShift] = static_cast<Limb>(v & kLimbMask);
-            carry = v >> kLimbBits;
-        }
-        if (carry) aligned.d[aligned.nlimbs - 1] = static_cast<Limb>(carry);
-    }
-    while (aligned.nlimbs > 1 && aligned.d[aligned.nlimbs-1] == 0) --aligned.nlimbs;
-
-    for (int s = shift; s >= 0; --s) {
-        if (ge(a, aligned)) subFrom(a, aligned);
-        // 右移 aligned 一位
-        Double carry = 0;
-        for (int i = aligned.nlimbs - 1; i >= 0; --i) {
-            Double v = (static_cast<Double>(aligned.d[i]) << (kLimbBits - 1)) | (carry >> 1);
-            aligned.d[i] = static_cast<Limb>(v & kLimbMask);
-            carry = static_cast<Double>(aligned.d[i]) << 1;
-        }
-        if (aligned.nlimbs > 1 && aligned.d[aligned.nlimbs-1] == 0) --aligned.nlimbs;
-    }
-}
-
-// a = (a * b) mod n
-void mulMod(BigNum& a, const BigNum& b, const BigNum& n) {
-    mulFull(a, b);
-    mod(a, n);
-}
-
-// result = base^exp mod n（exp = 65537 固定，用平方-乘）
-std::string modPow65537(const std::string& baseBytes, const std::string& modBytes) {
-    BigNum base = BigNum::fromBytes(baseBytes);
-    BigNum n = BigNum::fromBytes(modBytes);
-    if (n.isZero()) return {};
-
-    // 初始化 result = base
-    BigNum result = base;
-    mod(result, n);
-
-    // exp = 65537 = 0x10001，二进制 10000000000000001
-    // 16 次平方 + 1 次乘 base
-    for (int bit = 0; bit < 16; ++bit) {
-        BigNum tmp = result;
-        mulMod(tmp, result, n);  // tmp = result^2 mod n
-        result = tmp;
-    }
-    // 最后一位是 1，乘 base
-    mulMod(result, base, n);
-
-    return result.toBytes(static_cast<int>(modBytes.size()));
-}
-
-}  // namespace
-
-std::string rsaRawEncryptImpl(const std::string& plain,
+std::string rsaRawViaLibcrypto(const std::string& plain,
                                 const std::string& modulusHex,
                                 const std::string& exponentHex) {
     std::string modBytes = hexDecode(modulusHex);
@@ -312,11 +130,66 @@ std::string rsaRawEncryptImpl(const std::string& plain,
     if (modBytes.empty() || expBytes.empty() || plain.empty()) return {};
     if (plain.size() > modBytes.size()) return {};
 
-    // 验证 exponent 是否为 65537（当前仅支持此固定指数）
-    (void)expBytes;
+    static BnCtx ctx;
+    if (!ctx.load()) return {};
 
-    std::string cipherBytes = modPow65537(plain, modBytes);
-    return cipherBytes.empty() ? std::string() : hexEncode(cipherBytes);
+    typedef void* (*BN_bin2bn_t)(const unsigned char*, int, void*);
+    typedef void* (*BN_new_t)();
+    typedef void  (*BN_free_t)(void*);
+    typedef void* (*BN_CTX_new_t)();
+    typedef void  (*BN_CTX_free_t)(void*);
+    typedef int   (*BN_mod_exp_t)(void*, const void*, const void*, const void*, void*);
+    typedef int   (*BN_bn2bin_t)(const void*, unsigned char*);
+    typedef int   (*BN_num_bytes_t)(const void*);
+
+    auto _BN_bin2bn   = (BN_bin2bn_t)  ctx.sym("BN_bin2bn");
+    auto _BN_new       = (BN_new_t)      ctx.sym("BN_new");
+    auto _BN_free      = (BN_free_t)     ctx.sym("BN_free");
+    auto _BN_CTX_new   = (BN_CTX_new_t)  ctx.sym("BN_CTX_new");
+    auto _BN_CTX_free  = (BN_CTX_free_t) ctx.sym("BN_CTX_free");
+    auto _BN_mod_exp   = (BN_mod_exp_t)  ctx.sym("BN_mod_exp");
+    auto _BN_bn2bin    = (BN_bn2bin_t)   ctx.sym("BN_bn2bin");
+    auto _BN_num_bytes = (BN_num_bytes_t)ctx.sym("BN_num_bytes");
+
+    if (!_BN_bin2bn || !_BN_new || !_BN_free || !_BN_mod_exp ||
+        !_BN_bn2bin || !_BN_num_bytes || !_BN_CTX_new || !_BN_CTX_free)
+        return {};
+
+    void* m = _BN_bin2bn((const unsigned char*)plain.data(), (int)plain.size(), nullptr);
+    void* e = _BN_bin2bn((const unsigned char*)expBytes.data(), (int)expBytes.size(), nullptr);
+    void* n = _BN_bin2bn((const unsigned char*)modBytes.data(), (int)modBytes.size(), nullptr);
+    void* c = _BN_new();
+    void* bnctx = _BN_CTX_new();
+
+    std::string result;
+    if (m && e && n && c && bnctx) {
+        if (_BN_mod_exp(c, m, e, n, bnctx) == 1) {
+            int len = _BN_num_bytes(c);
+            std::string cipherBytes(len, '\0');
+            _BN_bn2bin(c, (unsigned char*)&cipherBytes[0]);
+            size_t expectedLen = modBytes.size();
+            if (cipherBytes.size() < expectedLen) {
+                cipherBytes = std::string(expectedLen - cipherBytes.size(), '\x00') + cipherBytes;
+            }
+            result = hexEncode(cipherBytes);
+        }
+    }
+
+    if (m) _BN_free(m);
+    if (e) _BN_free(e);
+    if (n) _BN_free(n);
+    if (c) _BN_free(c);
+    if (bnctx) _BN_CTX_free(bnctx);
+
+    return result;
+}
+
+}  // namespace
+
+std::string rsaRawEncryptImpl(const std::string& plain,
+                                const std::string& modulusHex,
+                                const std::string& exponentHex) {
+    return rsaRawViaLibcrypto(plain, modulusHex, exponentHex);
 }
 
 // CCCrypt 通用封装。
