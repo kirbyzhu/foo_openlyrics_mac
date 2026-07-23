@@ -27,6 +27,7 @@ add_library(openlyrics_core STATIC
   extensions/foo_openlyrics_mac/core/sources/QQMusicProvider.cpp
   extensions/foo_openlyrics_mac/core/config/AppConfig.cpp
   extensions/foo_openlyrics_mac/core/matching/Matcher.cpp
+  extensions/foo_openlyrics_mac/core/pipeline/SearchCoordinator.cpp
 )
 target_include_directories(openlyrics_core PUBLIC extensions/foo_openlyrics_mac/core)
 
@@ -128,6 +129,7 @@ add_executable(core_tests
   tests/test_app_config.cpp
   tests/test_base64.cpp
   tests/test_matcher.cpp
+  tests/test_search_coordinator.cpp
 )
 target_link_libraries(core_tests PRIVATE openlyrics_core GTest::gtest_main)
 

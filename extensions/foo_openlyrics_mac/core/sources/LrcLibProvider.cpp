@@ -120,18 +120,22 @@ bool LrcLibProvider::fetchById(int id, LyricData& out) {
 }
 
 bool LrcLibProvider::search(const TrackMeta& track, std::vector<SearchResult>& out) {
-    std::string query = track.title;
-    if (!track.artist.empty()) {
-        query += " " + track.artist;
+    if (track.title.empty()) return false;
+    std::string query = track.artist.empty() ? track.title
+                                             : track.artist + " " + track.title;
+    std::vector<SearchResult> raw;
+    if (!search(query, raw)) return false;
+    for (auto& r : raw) {
+        r.source = SourceId::LrcLib;
+        out.push_back(std::move(r));
     }
-    return search(query, out);
+    return !out.empty();
 }
 
 bool LrcLibProvider::fetchById(const std::string& id, LyricData& out) {
-    char* end = nullptr;
-    long nid = std::strtol(id.c_str(), &end, 10);
-    if (end == id.c_str() || nid <= 0) return false;
-    return fetchById(static_cast<int>(nid), out);
+    int intId = 0;
+    try { intId = std::stoi(id); } catch (...) { return false; }
+    return fetchById(intId, out);
 }
 
 }  // namespace openlyrics
