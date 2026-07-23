@@ -311,6 +311,10 @@ static const double kOffsetMax = 30.0;
             openlyrics::FileSystemAdapter fs;
             openlyrics::LyricStore store(fs);
             store.forceSave(meta, parsed);
+            // 落盘完成后通知桌面歌词同步
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [[PlaybackHub sharedHub] notifyLyricChanged];
+            });
         });
     }
 }
@@ -488,6 +492,8 @@ static const double kOffsetMax = 30.0;
             strongSelf.statusLabel.stringValue = title;
             [strongSelf updateOffsetUI];
             strongSelf.offsetContainer.hidden = data.lines.empty();
+            // 通知桌面歌词同步
+            [[PlaybackHub sharedHub] notifyLyricChanged];
         });
     });
 }
