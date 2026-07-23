@@ -5,6 +5,16 @@
 
 namespace openlyrics {
 
+struct DeskLyricsConfig {
+    bool enabled = false;
+    bool showOnlyInBackground = true;
+    double fontSize = 28.0;
+    std::string normalColor = "#FFFFFF";
+    std::string highlightColor = "#FFD700";
+    std::string alignment = "center";
+    double lineSpacing = 8.0;
+};
+
 struct SourceConfig {
     std::string key;     // "tag"/"local"/"lrclib"/"netease"/"qqmusic"
     bool enabled = true;
@@ -28,6 +38,7 @@ struct AppConfig {
     int maxConsecutiveFailures = 5;
     std::string savePathTemplate;
     std::string logLevel = "info";
+    DeskLyricsConfig deskLyrics;
 
     // 序列化为 JSON 字符串；反序列化失败（空串/格式错误）返回默认值。
     std::string toJson() const;

@@ -71,6 +71,58 @@ TEST(AppConfig, JsonContainsAllKeys) {
     EXPECT_NE(json.find("\"maxConsecutiveFailures\""), std::string::npos);
     EXPECT_NE(json.find("\"savePathTemplate\""), std::string::npos);
     EXPECT_NE(json.find("\"logLevel\""), std::string::npos);
+    EXPECT_NE(json.find("\"deskLyrics\""), std::string::npos);
+}
+
+TEST(AppConfig, DeskLyricsDefaultsDisabled) {
+    AppConfig c = AppConfig::defaults();
+    EXPECT_FALSE(c.deskLyrics.enabled);
+    EXPECT_TRUE(c.deskLyrics.showOnlyInBackground);
+    EXPECT_DOUBLE_EQ(c.deskLyrics.fontSize, 28.0);
+    EXPECT_EQ(c.deskLyrics.normalColor, "#FFFFFF");
+    EXPECT_EQ(c.deskLyrics.highlightColor, "#FFD700");
+    EXPECT_EQ(c.deskLyrics.alignment, "center");
+    EXPECT_DOUBLE_EQ(c.deskLyrics.lineSpacing, 8.0);
+}
+
+TEST(AppConfig, DeskLyricsRoundTrip) {
+    AppConfig c = AppConfig::defaults();
+    c.deskLyrics.enabled = true;
+    c.deskLyrics.showOnlyInBackground = false;
+    c.deskLyrics.fontSize = 32.0;
+    c.deskLyrics.normalColor = "#F0F0F0";
+    c.deskLyrics.highlightColor = "#00FF00";
+    c.deskLyrics.alignment = "left";
+    c.deskLyrics.lineSpacing = 12.0;
+
+    std::string json = c.toJson();
+    AppConfig c2 = AppConfig::fromJson(json);
+
+    EXPECT_TRUE(c2.deskLyrics.enabled);
+    EXPECT_FALSE(c2.deskLyrics.showOnlyInBackground);
+    EXPECT_DOUBLE_EQ(c2.deskLyrics.fontSize, 32.0);
+    EXPECT_EQ(c2.deskLyrics.normalColor, "#F0F0F0");
+    EXPECT_EQ(c2.deskLyrics.highlightColor, "#00FF00");
+    EXPECT_EQ(c2.deskLyrics.alignment, "left");
+    EXPECT_DOUBLE_EQ(c2.deskLyrics.lineSpacing, 12.0);
+}
+
+TEST(AppConfig, DeskLyricsJsonKeyPresent) {
+    std::string json = AppConfig::defaults().toJson();
+    EXPECT_NE(json.find("\"deskLyrics\""), std::string::npos);
+}
+
+TEST(AppConfig, DeskLyricsFromOldJsonReturnsDefaults) {
+    // 不含 deskLyrics 键的旧 JSON 应回退默认值
+    AppConfig c = AppConfig::defaults();
+    std::string fullJson = c.toJson();
+    size_t pos = fullJson.find(",\"deskLyrics\"");
+    ASSERT_NE(pos, std::string::npos);
+    std::string oldJson = fullJson.substr(0, pos) + "}";
+
+    AppConfig c2 = AppConfig::fromJson(oldJson);
+    EXPECT_FALSE(c2.deskLyrics.enabled);
+    EXPECT_DOUBLE_EQ(c2.deskLyrics.fontSize, 28.0);
 }
 
 TEST(AppConfig, JsonEscapesQuotes) {

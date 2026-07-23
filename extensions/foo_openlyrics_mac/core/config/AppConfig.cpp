@@ -110,6 +110,54 @@ void parseDisplay(const std::string& json, DisplayConfig& out) {
         out.lineSpacing = static_cast<double>(lineSpacing);
 }
 
+void writeDeskLyrics(std::ostringstream& oss, const DeskLyricsConfig& d) {
+    oss << "\"deskLyrics\":{"
+        << "\"enabled\":" << (d.enabled ? "true" : "false") << ','
+        << "\"showOnlyInBackground\":" << (d.showOnlyInBackground ? "true" : "false") << ','
+        << "\"fontSize\":" << d.fontSize << ','
+        << "\"normalColor\":\"" << esc(d.normalColor) << "\","
+        << "\"highlightColor\":\"" << esc(d.highlightColor) << "\","
+        << "\"alignment\":\"" << esc(d.alignment) << "\","
+        << "\"lineSpacing\":" << d.lineSpacing
+        << '}';
+}
+
+void parseDeskLyrics(const std::string& json, DeskLyricsConfig& out) {
+    std::string obj;
+    if (!jsonGetObject(json, "deskLyrics", obj)) return;
+    jsonGetBool(obj, "enabled", out.enabled);
+    jsonGetBool(obj, "showOnlyInBackground", out.showOnlyInBackground);
+    size_t pos = obj.find("\"fontSize\"");
+    if (pos != std::string::npos) {
+        pos = obj.find(':', pos);
+        if (pos != std::string::npos) {
+            ++pos;
+            while (pos < obj.size() && (obj[pos] == ' ' || obj[pos] == '\t')) ++pos;
+            size_t numEnd = pos;
+            while (numEnd < obj.size() &&
+                   ((obj[numEnd] >= '0' && obj[numEnd] <= '9') || obj[numEnd] == '.'))
+                ++numEnd;
+            if (numEnd > pos) out.fontSize = std::stod(obj.substr(pos, numEnd - pos));
+        }
+    }
+    jsonGetString(obj, "normalColor", out.normalColor);
+    jsonGetString(obj, "highlightColor", out.highlightColor);
+    jsonGetString(obj, "alignment", out.alignment);
+    pos = obj.find("\"lineSpacing\"");
+    if (pos != std::string::npos) {
+        pos = obj.find(':', pos);
+        if (pos != std::string::npos) {
+            ++pos;
+            while (pos < obj.size() && (obj[pos] == ' ' || obj[pos] == '\t')) ++pos;
+            size_t numEnd = pos;
+            while (numEnd < obj.size() &&
+                   ((obj[numEnd] >= '0' && obj[numEnd] <= '9') || obj[numEnd] == '.'))
+                ++numEnd;
+            if (numEnd > pos) out.lineSpacing = std::stod(obj.substr(pos, numEnd - pos));
+        }
+    }
+}
+
 }  // namespace
 
 AppConfig AppConfig::defaults() {
@@ -130,6 +178,8 @@ std::string AppConfig::toJson() const {
     writeSourceArray(oss, sources);
     oss << ',';
     writeDisplay(oss, display);
+    oss << ',';
+    writeDeskLyrics(oss, deskLyrics);
     oss << ",\"defaultOffsetMs\":" << defaultOffsetMs
         << ",\"httpTimeoutSec\":" << httpTimeoutSec
         << ",\"maxConsecutiveFailures\":" << maxConsecutiveFailures
@@ -148,6 +198,7 @@ AppConfig AppConfig::fromJson(const std::string& json) {
     // 如果解析后为空（JSON 中无 sources 键），回退默认值
     if (c.sources.empty()) c.sources = AppConfig::defaults().sources;
     parseDisplay(json, c.display);
+    parseDeskLyrics(json, c.deskLyrics);
 
     int64_t v = 0;
     if (jsonGetInt(json, "defaultOffsetMs", v)) c.defaultOffsetMs = v;
