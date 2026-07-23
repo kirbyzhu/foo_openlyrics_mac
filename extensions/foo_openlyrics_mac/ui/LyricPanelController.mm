@@ -427,6 +427,10 @@ static const double kOffsetMax = 30.0;
         openlyrics::LyricData data;
         bool ok = false;
 
+        FB2K_console_print("foo_openlyrics panel: fetchById src=",
+                           openlyrics::sourceDisplayName(sid),
+                           " id=", lyricId.UTF8String);
+
         if (sid == openlyrics::SourceId::LrcLib) {
             openlyrics::LrcLibProvider provider(http);
             ok = provider.fetchById(lyricId.UTF8String, data);
@@ -437,6 +441,8 @@ static const double kOffsetMax = 30.0;
             openlyrics::QQMusicProvider provider(http, crypto);
             ok = provider.fetchById(lyricId.UTF8String, data);
         }
+
+        FB2K_console_print("foo_openlyrics panel: fetchById result=", ok ? "OK" : "FAIL");
 
         if (!ok) {
             dispatch_async(dispatch_get_main_queue(), ^{
