@@ -33,6 +33,7 @@ static const CGFloat kEdgeResizeMargin = 10.0;
 static const NSTimeInterval kSaveDebounce = 0.3;
 static const CGFloat kCornerRadius = 14.0;      // 面板圆角半径，贴近 macOS 小部件风格
 static const CGFloat kContentInset = 6.0;       // 歌词视图相对面板的内边距，避开圆角
+static const NSTimeInterval kHoverShowDelay = 1.0;  // 悬停多久后才显现背景，避免鼠标掠过误触发
 
 typedef NS_ENUM(NSInteger, DeskMenuTag) {
     DeskMenuTagReSearchLrcLib = 1,
@@ -105,7 +106,6 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 @property(nonatomic, copy) void (^onOffsetDelta)(int64_t deltaMs);
 @property(nonatomic, copy) void (^onOffsetCommit)(int64_t totalDeltaMs);
 @property(nonatomic, copy) void (^onMoveTo)(NSPoint origin);
-@property(nonatomic, copy) void (^onResizeDelta)(CGFloat newW, CGFloat newH);
 @property(nonatomic, copy) void (^onResizeFrame)(NSRect frame);
 @property(nonatomic, copy) void (^onResizeCommit)(void);
 
@@ -138,8 +138,6 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     int64_t _scrubDeltaMs;
     NSTextField *_hudLabel;
 
-    NSSize _resizeStartSize;
-    NSPoint _resizeStartMouse;
     BOOL _dragBorderVisible;
 
     DeskEdge _resizeEdges;          // 边缘缩放命中的边
@@ -152,6 +150,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     NSVisualEffectView *_bgView;    // 圆角毛玻璃背景，仅悬停/拖拽时显现
     NSTrackingArea *_trackingArea;
     BOOL _hovering;                 // 鼠标悬停中
+    BOOL _hoverBgActive;            // 悬停已满 kHoverShowDelay，允许因悬停显现背景
     BOOL _interacting;              // 拖拽/缩放/偏移微调进行中
     BOOL _bgShown;                  // 背景当前是否可见，去抖动画
 }
@@ -241,18 +240,29 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 - (void)mouseEntered:(NSEvent *)event {
     (void)event;
     _hovering = YES;
-    [self updateBackgroundShown];
+    // 悬停满 kHoverShowDelay 才显现背景：鼠标短暂掠过不触发，避免遮挡窗口下方的桌面内容。
+    [self performSelector:@selector(hoverDwellElapsed) withObject:nil afterDelay:kHoverShowDelay];
 }
 
 - (void)mouseExited:(NSEvent *)event {
     (void)event;
     _hovering = NO;
+    _hoverBgActive = NO;
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(hoverDwellElapsed)
+                                               object:nil];
     [self updateBackgroundShown];
 }
 
-// 悬停或交互中任一成立即显现磨玻璃背景，否则回到全透明；带淡入淡出并刷新窗口阴影。
+- (void)hoverDwellElapsed {
+    if (!_hovering) return;   // 已提前移出则作废
+    _hoverBgActive = YES;
+    [self updateBackgroundShown];
+}
+
+// 悬停满时长或正在交互任一成立即显现磨玻璃背景，否则回到全透明；带淡入淡出并刷新窗口阴影。
 - (void)updateBackgroundShown {
-    BOOL shouldShow = _hovering || _interacting;
+    BOOL shouldShow = _hoverBgActive || _interacting;
     if (shouldShow == _bgShown) return;
     _bgShown = shouldShow;
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
@@ -323,8 +333,10 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         NSEventModifierFlags flags = event.modifierFlags;
         if (flags & NSEventModifierFlagCommand) {
             _isCmdResizing = YES;
-            _resizeStartSize = self.window.frame.size;
-            _resizeStartMouse = cur;
+            // 记录整块起始 frame 与屏幕坐标起点：缩放中窗口尺寸变化会令 locationInWindow
+            // 参考系漂移导致灵敏度失真，故一律用屏幕坐标做 1:1 位移。
+            _resizeStartFrame = self.window.frame;
+            _resizeStartScreenMouse = [NSEvent mouseLocation];
             [self showDragBorder];
             return;
         } else if (flags & NSEventModifierFlagOption) {
@@ -336,11 +348,18 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     }
 
     if (_isCmdResizing) {
-        CGFloat totalDx = cur.x - _resizeStartMouse.x;
-        CGFloat totalDy = cur.y - _resizeStartMouse.y;
-        CGFloat newW = MAX(kMinPanelWidth,  _resizeStartSize.width  + totalDx);
-        CGFloat newH = MAX(kMinPanelHeight, _resizeStartSize.height + totalDy);
-        if (self.onResizeDelta) self.onResizeDelta(newW, newH);
+        // 固定左上角，模拟拖拽右下角：右移变宽、下移变高，屏幕坐标 1:1 无漂移。
+        NSPoint m = [NSEvent mouseLocation];
+        CGFloat dx = m.x - _resizeStartScreenMouse.x;
+        CGFloat dy = m.y - _resizeStartScreenMouse.y;  // 屏幕坐标 y 向上，下移为负
+        CGFloat newW = MAX(kMinPanelWidth,  _resizeStartFrame.size.width  + dx);
+        CGFloat newH = MAX(kMinPanelHeight, _resizeStartFrame.size.height - dy);
+        NSRect f = _resizeStartFrame;
+        CGFloat fixedTop = _resizeStartFrame.origin.y + _resizeStartFrame.size.height;
+        f.size.width = newW;
+        f.size.height = newH;
+        f.origin.y = fixedTop - newH;   // 顶边不动，向下扩展
+        if (self.onResizeFrame) self.onResizeFrame(f);
         [self showResizeHudWithWidth:newW height:newH];
     } else if (_isScrubbing) {
         int64_t delta = static_cast<int64_t>(-dy * (1000.0 / kScrubPixelsPerSecond));
@@ -785,16 +804,6 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         frame = [strongSelf clampFrameToVisible:frame];
         [strongSelf->_panel setFrameOrigin:frame.origin];
         [strongSelf schedulePositionSave];
-    };
-
-    _contentView.onResizeDelta = ^(CGFloat newW, CGFloat newH) {
-        __typeof__(self) strongSelf = weakSelf;
-        if (strongSelf == nil) return;
-        NSRect frame = strongSelf->_panel.frame;
-        frame.size.width = newW;
-        frame.size.height = newH;
-        frame = [strongSelf clampFrameToVisible:frame];
-        [strongSelf->_panel setFrame:frame display:YES];
     };
 
     _contentView.onResizeFrame = ^(NSRect frame) {
