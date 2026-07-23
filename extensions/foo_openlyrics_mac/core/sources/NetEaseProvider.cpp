@@ -112,7 +112,14 @@ std::string NetEaseProvider::weapiPost(const std::string& url, const std::string
     };
 
     HttpResponse r = http_.post(url, body, headers);
-    if (r.status != 200) return {};
+    if (r.status != 200) {
+        lastDiag = "weapi: HTTP status=" + std::to_string(r.status) + " bodyLen=" + std::to_string(r.body.size());
+        return {};
+    }
+    if (r.body.empty()) {
+        lastDiag = "weapi: HTTP 200 but body empty (len=" + std::to_string(body.size()) + " paramsLen=" + std::to_string(w.params.size()) + " encLen=" + std::to_string(w.encSecKey.size()) + ")";
+        return {};
+    }
     return r.body;
 }
 
