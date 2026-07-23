@@ -60,6 +60,13 @@ static const double kOffsetMax = 30.0;
 @property(nonatomic, copy) NSArray<NSDictionary *> *searchSections;
 @end
 
+// 可接受第一响应者的 NSView 包装，使 NSSearchField 能正确参与 IME 输入
+@interface InputCapableView : NSView
+@end
+@implementation InputCapableView
+- (BOOL)acceptsFirstResponder { return YES; }
+@end
+
 @implementation LyricPanelController {
     openlyrics::LyricData _currentLyricData;
     int64_t _currentExtraOffsetMs;
@@ -76,7 +83,7 @@ static const double kOffsetMax = 30.0;
     // 应用全局配置
     openlyrics::HttpAdapter::setGlobalTimeout(_config.httpTimeoutSec);
 
-    NSView *root = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 320, 200)];
+    NSView *root = [[InputCapableView alloc] initWithFrame:NSMakeRect(0, 0, 320, 200)];
 
     // 搜索框
     NSSearchField *search = [[NSSearchField alloc] initWithFrame:NSZeroRect];
@@ -226,20 +233,20 @@ static const double kOffsetMax = 30.0;
 
     NSTableView *tv = [[NSTableView alloc] initWithFrame:NSZeroRect];
     NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:@"result"];
-    col.title = @""; col.width = 340;
+    col.title = @""; col.width = 420;
     [tv addTableColumn:col];
     tv.headerView = nil; tv.rowHeight = 36;
     tv.dataSource = self; tv.delegate = self;
     tv.target = self; tv.doubleAction = @selector(searchRowDoubleClicked:);
     _searchTableView = tv;
 
-    NSScrollView *popScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 360, 200)];
+    NSScrollView *popScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 440, 200)];
     popScroll.documentView = tv; popScroll.hasVerticalScroller = YES;
     popScroll.autohidesScrollers = YES;
     NSViewController *popVC = [[NSViewController alloc] init];
     popVC.view = popScroll;
     _searchPopover.contentViewController = popVC;
-    _searchPopover.contentSize = NSMakeSize(360, 200);
+    _searchPopover.contentSize = NSMakeSize(440, 200);
 
     self.searchField = search;
     self.statusLabel = status;
@@ -342,6 +349,20 @@ static const double kOffsetMax = 30.0;
 
         auto groups = coordinator.searchAll(track);
 
+        FB2K_console_print("foo_openlyrics search: query=", query.UTF8String,
+                           " sources=", std::to_string(groups.size()).c_str());
+        for (const auto& g : groups) {
+            FB2K_console_print("foo_openlyrics search:  source=", g.sourceName.c_str(),
+                               " count=", std::to_string(g.items.size()).c_str());
+            for (size_t i = 0; i < g.items.size() && i < 3; ++i) {
+                FB2K_console_print("foo_openlyrics search:   #", std::to_string(i+1).c_str(),
+                                   " id=", g.items[i].id.c_str(),
+                                   " title='", g.items[i].trackName.c_str(), "'",
+                                   " artist='", g.items[i].artistName.c_str(), "'",
+                                   " score=", std::to_string(g.items[i].score).c_str());
+            }
+        }
+
         static const int kMinScore = 30;  // 手动搜索最低相关度阈值
 
         // 转为 NSArray 供 UI 展示：每个元素是一个 section 字典
@@ -384,10 +405,12 @@ static const double kOffsetMax = 30.0;
             if (totalRows > 0) {
                 NSViewController *vc = strongSelf.searchPopover.contentViewController;
                 CGFloat popoverHeight = MIN(totalRows * strongSelf.searchTableView.rowHeight + 4, 300.0);
-                vc.view.frame = NSMakeRect(0, 0, 360, popoverHeight);
+                vc.view.frame = NSMakeRect(0, 0, 440, popoverHeight);
                 [strongSelf.searchPopover showRelativeToRect:strongSelf.searchField.bounds
                                                       ofView:strongSelf.searchField
                                                preferredEdge:NSRectEdgeMaxY];
+                // popover 展示后恢复搜索框为第一响应者，确保 IME 可用
+                [strongSelf.view.window makeFirstResponder:strongSelf.searchField];
             }
         });
     });
@@ -629,6 +652,9 @@ static const double kOffsetMax = 30.0;
 
     [[PlaybackHub sharedHub] addObserver:self];
     [self handleTrackChanged];
+
+    // 确保搜索框可接收 IME 输入
+    [self.view.window makeFirstResponder:self.searchField];
 
     if (self.syncTimer == nil) {
         __weak __typeof__(self) weakSelf = self;
