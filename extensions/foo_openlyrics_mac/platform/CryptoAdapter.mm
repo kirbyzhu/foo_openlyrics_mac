@@ -108,6 +108,13 @@ std::string rsaRawEncryptImpl(const std::string& plain,
     std::string expBytes = hexDecode(exponentHex);
     if (modBytes.empty() || expBytes.empty()) return {};
 
+    // Raw RSA 加密要求明文长度等于密钥块大小。NetEase weapi 的 secretKey
+    // 反转后仅 16 字节，需左补零到模数字节长度（2048 位 → 256 字节）。
+    std::string paddedPlain = plain;
+    if (paddedPlain.size() < modBytes.size()) {
+        paddedPlain = std::string(modBytes.size() - paddedPlain.size(), '\x00') + paddedPlain;
+    }
+
     std::string der = buildRSAPublicKeyDER(modBytes, expBytes);
 
     NSData* keyData = [NSData dataWithBytes:der.data() length:der.size()];
@@ -126,7 +133,7 @@ std::string rsaRawEncryptImpl(const std::string& plain,
         return {};
     }
 
-    NSData* plainData = [NSData dataWithBytes:plain.data() length:plain.size()];
+    NSData* plainData = [NSData dataWithBytes:paddedPlain.data() length:paddedPlain.size()];
     CFDataRef cipherData = SecKeyCreateEncryptedData(
         pubKey, kSecKeyAlgorithmRSAEncryptionRaw,
         (__bridge CFDataRef)plainData, &error);

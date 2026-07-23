@@ -105,24 +105,40 @@ bool QQMusicProvider::fetchById(const std::string& id, LyricData& out) {
 }
 
 bool QQMusicProvider::extractSongList(const std::string& json, std::vector<SearchResult>& out, int limit) {
-    // 找到 "list" 键
-    size_t pos = json.find("\"list\"");
+    // 先定位 "song" 对象，再在其内部找 "list" 数组，避免被 semantic.list 误导。
+    size_t songPos = json.find("\"song\"");
+    if (songPos == std::string::npos) return false;
+    songPos += 6;
+    while (songPos < json.size() && (json[songPos] == ' ' || json[songPos] == '\t' ||
+                                      json[songPos] == '\n' || json[songPos] == '\r' ||
+                                      json[songPos] == ':'))
+        ++songPos;
+    std::string songObj;
+    if (!jsonExtractObject(json, songPos, songObj)) return false;
+
+    // 在 song 对象内找 "list" 键
+    size_t pos = songObj.find("\"list\"");
     if (pos == std::string::npos) return false;
     pos += 6;
-    while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' ||
-                                  json[pos] == '\n' || json[pos] == '\r' || json[pos] == ':'))
+    while (pos < songObj.size() && (songObj[pos] == ' ' || songObj[pos] == '\t' ||
+                                     songObj[pos] == '\n' || songObj[pos] == '\r' ||
+                                     songObj[pos] == ':'))
         ++pos;
-    if (pos >= json.size() || json[pos] != '[') return false;
+    while (pos < songObj.size() && (songObj[pos] == ' ' || songObj[pos] == '\t' ||
+                                     songObj[pos] == '\n' || songObj[pos] == '\r' ||
+                                     songObj[pos] == ':'))
+        ++pos;
+    if (pos >= songObj.size() || songObj[pos] != '[') return false;
     ++pos;  // 跳过 [
 
     for (int i = 0; i < limit; ++i) {
         // 宽松跳过：与 NetEase parse 一致，跳过任意非 '{' 非 ']' 字符
-        while (pos < json.size() && json[pos] != '{' && json[pos] != ']') ++pos;
-        if (pos >= json.size() || json[pos] == ']') break;
-        if (json[pos] != '{') return false;
+        while (pos < songObj.size() && songObj[pos] != '{' && songObj[pos] != ']') ++pos;
+        if (pos >= songObj.size() || songObj[pos] == ']') break;
+        if (songObj[pos] != '{') return false;
 
         std::string obj;
-        if (!jsonExtractObject(json, pos, obj)) break;
+        if (!jsonExtractObject(songObj, pos, obj)) break;
 
         SearchResult sr;
         sr.source = SourceId::QQMusic;
