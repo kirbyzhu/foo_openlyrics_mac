@@ -114,6 +114,7 @@ void writeDeskLyrics(std::ostringstream& oss, const DeskLyricsConfig& d) {
         << "\"fontSize\":" << d.fontSize << ','
         << "\"normalColor\":\"" << esc(d.normalColor) << "\","
         << "\"highlightColor\":\"" << esc(d.highlightColor) << "\","
+        << "\"titleColor\":\"" << esc(d.titleColor) << "\","
         << "\"alignment\":\"" << esc(d.alignment) << "\","
         << "\"lineSpacing\":" << d.lineSpacing << ','
         << "\"windowWidth\":" << d.windowWidth << ','
@@ -148,6 +149,7 @@ void parseDeskLyrics(const std::string& json, DeskLyricsConfig& out) {
     }
     jsonGetString(obj, "normalColor", out.normalColor);
     jsonGetString(obj, "highlightColor", out.highlightColor);
+    jsonGetString(obj, "titleColor", out.titleColor);
     jsonGetString(obj, "alignment", out.alignment);
     pos = obj.find("\"lineSpacing\"");
     if (pos != std::string::npos) {

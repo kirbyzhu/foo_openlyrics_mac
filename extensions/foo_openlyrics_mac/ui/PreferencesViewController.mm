@@ -34,6 +34,7 @@ static const CGFloat kMinPanelHeight = 60.0;
 @property(nonatomic, strong) NSTextField *deskFontSizeField;
 @property(nonatomic, strong) NSColorWell *deskNormalColorWell;
 @property(nonatomic, strong) NSColorWell *deskHighlightColorWell;
+@property(nonatomic, strong) NSColorWell *deskTitleColorWell;
 @property(nonatomic, strong) NSPopUpButton *deskAlignmentPopup;
 @property(nonatomic, strong) NSSlider *deskLineSpacingSlider;
 @property(nonatomic, strong) NSTextField *deskLineSpacingLabel;
@@ -357,6 +358,13 @@ static const CGFloat kMinPanelHeight = 60.0;
     self.deskHighlightColorWell = hlWell;
     addGridRow([NSTextField labelWithString:@"高亮色："], hlWell);
 
+    // 标题色
+    NSColorWell *titleWell = [NSColorWell new];
+    titleWell.target = self;
+    titleWell.action = @selector(deskColorChanged:);
+    self.deskTitleColorWell = titleWell;
+    addGridRow([NSTextField labelWithString:@"标题色："], titleWell);
+
     // 对齐
     NSPopUpButton *alignPop = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [alignPop addItemsWithTitles:@[@"居中", @"左对齐", @"右对齐"]];
@@ -445,8 +453,10 @@ static const CGFloat kMinPanelHeight = 60.0;
 - (void)deskColorChanged:(NSColorWell *)sender {
     if (sender == _deskNormalColorWell)
         _config.deskLyrics.normalColor = [self hexFromColor:_deskNormalColorWell.color].UTF8String;
-    else
+    else if (sender == _deskHighlightColorWell)
         _config.deskLyrics.highlightColor = [self hexFromColor:_deskHighlightColorWell.color].UTF8String;
+    else
+        _config.deskLyrics.titleColor = [self hexFromColor:_deskTitleColorWell.color].UTF8String;
     [self saveConfig];
 }
 
@@ -527,6 +537,7 @@ static const CGFloat kMinPanelHeight = 60.0;
     _deskFontSizeField.stringValue = [NSString stringWithFormat:@"%.0f", dl.fontSize];
     _deskNormalColorWell.color = [self colorFromHex:dl.normalColor];
     _deskHighlightColorWell.color = [self colorFromHex:dl.highlightColor];
+    _deskTitleColorWell.color = [self colorFromHex:dl.titleColor];
 
     NSInteger dlAlign = 0;
     if (dl.alignment == "left") dlAlign = 1;

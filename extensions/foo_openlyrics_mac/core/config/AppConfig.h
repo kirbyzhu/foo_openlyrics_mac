@@ -11,6 +11,7 @@ struct DeskLyricsConfig {
     double fontSize = 28.0;
     std::string normalColor = "#FFFFFF";
     std::string highlightColor = "#FFD700";
+    std::string titleColor = "#FFFFFF";  // 标题栏文字颜色
     std::string alignment = "center";
     double lineSpacing = 8.0;
     double windowWidth = 600.0;
@@ -32,6 +33,7 @@ struct DisplayConfig {
     double highlightScale = 1.15;
     std::string normalColor = "#333333";
     std::string highlightColor = "#007AFF";
+    std::string titleColor = "#FFFFFF";  // 桌面歌词标题栏颜色，内嵌面板不使用
     std::string alignment = "center";   // "left"/"center"/"right"
     double lineSpacing = 6.0;
 };

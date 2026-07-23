@@ -81,6 +81,7 @@ TEST(AppConfig, DeskLyricsDefaultsDisabled) {
     EXPECT_DOUBLE_EQ(c.deskLyrics.fontSize, 28.0);
     EXPECT_EQ(c.deskLyrics.normalColor, "#FFFFFF");
     EXPECT_EQ(c.deskLyrics.highlightColor, "#FFD700");
+    EXPECT_EQ(c.deskLyrics.titleColor, "#FFFFFF");
     EXPECT_EQ(c.deskLyrics.alignment, "center");
     EXPECT_DOUBLE_EQ(c.deskLyrics.lineSpacing, 8.0);
 }
@@ -92,6 +93,7 @@ TEST(AppConfig, DeskLyricsRoundTrip) {
     c.deskLyrics.fontSize = 32.0;
     c.deskLyrics.normalColor = "#F0F0F0";
     c.deskLyrics.highlightColor = "#00FF00";
+    c.deskLyrics.titleColor = "#FF00FF";
     c.deskLyrics.alignment = "left";
     c.deskLyrics.lineSpacing = 12.0;
 
@@ -103,6 +105,7 @@ TEST(AppConfig, DeskLyricsRoundTrip) {
     EXPECT_DOUBLE_EQ(c2.deskLyrics.fontSize, 32.0);
     EXPECT_EQ(c2.deskLyrics.normalColor, "#F0F0F0");
     EXPECT_EQ(c2.deskLyrics.highlightColor, "#00FF00");
+    EXPECT_EQ(c2.deskLyrics.titleColor, "#FF00FF");
     EXPECT_EQ(c2.deskLyrics.alignment, "left");
     EXPECT_DOUBLE_EQ(c2.deskLyrics.lineSpacing, 12.0);
 }
@@ -187,6 +190,7 @@ TEST(AppConfig, DeskLyricsFromOldJsonReturnsDefaults) {
     AppConfig c2 = AppConfig::fromJson(oldJson);
     EXPECT_FALSE(c2.deskLyrics.enabled);
     EXPECT_DOUBLE_EQ(c2.deskLyrics.fontSize, 28.0);
+    EXPECT_EQ(c2.deskLyrics.titleColor, "#FFFFFF");
     EXPECT_DOUBLE_EQ(c2.deskLyrics.windowWidth, 600.0);
     EXPECT_DOUBLE_EQ(c2.deskLyrics.windowHeight, 120.0);
     EXPECT_DOUBLE_EQ(c2.deskLyrics.windowX, -1.0);

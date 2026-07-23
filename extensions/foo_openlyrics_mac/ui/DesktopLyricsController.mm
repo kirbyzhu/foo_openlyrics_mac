@@ -790,6 +790,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     dc.highlightScale = _config.display.highlightScale;
     dc.normalColor = d.normalColor;
     dc.highlightColor = d.highlightColor;
+    dc.titleColor = d.titleColor;
     dc.alignment = d.alignment;
     dc.lineSpacing = d.lineSpacing;
     [_lyricView applyDisplayConfig:dc];

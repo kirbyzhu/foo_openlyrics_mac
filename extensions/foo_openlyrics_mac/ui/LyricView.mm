@@ -142,7 +142,7 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
 
 - (void)rebuildTitleAttr {
     if (_titleText.length == 0) { _titleAttr = nil; return; }
-    NSColor *color = colorFromHex(_displayCfg.normalColor,
+    NSColor *color = colorFromHex(_displayCfg.titleColor,
         [NSColor colorWithCalibratedWhite:0.85 alpha:1.0]);
     NSMutableParagraphStyle *ps = [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
     ps.alignment = alignmentFromString(_displayCfg.alignment);
