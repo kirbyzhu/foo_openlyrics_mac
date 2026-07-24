@@ -201,6 +201,18 @@ int64_t SecondsToMs(double seconds) {
     }
 }
 
+- (void)notifyManualHighlightLine:(NSInteger)lineIndex {
+    [_observersLock lock];
+    NSArray<id<PlaybackHubObserving>> *snapshot = [_observers allObjects];
+    [_observersLock unlock];
+
+    for (id<PlaybackHubObserving> observer in snapshot) {
+        if ([observer respondsToSelector:@selector(playbackHubManualHighlightDidChange:)]) {
+            [observer playbackHubManualHighlightDidChange:lineIndex];
+        }
+    }
+}
+
 @end
 
 namespace {

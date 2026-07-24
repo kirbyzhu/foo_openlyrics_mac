@@ -28,6 +28,8 @@
 // 歌词内容或偏移发生变更（桌面歌词偏移提交/删除文件/重新搜索后触发），
 // 实现者应从磁盘重新加载当前歌词并同步偏移量。
 - (void)playbackHubLyricDidChange;
+// 桌面歌词打轴期间手动高亮某行；lineIndex>=0 高亮该行，-1 表示清除手动高亮、恢复自动跟随。
+- (void)playbackHubManualHighlightDidChange:(NSInteger)lineIndex;
 @end
 
 @interface PlaybackHub : NSObject
@@ -50,5 +52,8 @@
 // 通知所有观察者歌词内容已变更（桌面歌词偏移提交、删除文件、重新搜索后调用）。
 // 观察者应从本地文件重新加载并同步偏移量。
 - (void)notifyLyricChanged;
+
+// 广播打轴手动高亮行索引给所有观察者（-1 表示恢复自动跟随）。
+- (void)notifyManualHighlightLine:(NSInteger)lineIndex;
 
 @end
