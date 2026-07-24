@@ -82,6 +82,60 @@ std::vector<std::string> tokenize(const std::string& s) {
     return tokens;
 }
 
+// UTF-8 字符字节长度（按首字节）。
+int utf8CharLen(unsigned char c) {
+    if (c < 0x80) return 1;
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+    return 1;  // 非法首字节按 1 收尾
+}
+
+// CJK 感知分词：ASCII 字母数字连续段为一个词 token；
+// 非 ASCII 连续段按相邻双字（bigram）生成 token，单字符段用单字。
+std::vector<std::string> buildMatchTokens(const std::string& s) {
+    std::vector<std::string> tokens;
+    std::string asciiWord;
+    std::vector<std::string> cjkRun;   // 当前非 ASCII 连续段的字符
+
+    auto flushAscii = [&]() {
+        if (!asciiWord.empty()) { tokens.push_back(asciiWord); asciiWord.clear(); }
+    };
+    auto flushCjk = [&]() {
+        if (cjkRun.empty()) return;
+        if (cjkRun.size() == 1) {
+            tokens.push_back(cjkRun[0]);
+        } else {
+            for (size_t i = 0; i + 1 < cjkRun.size(); ++i)
+                tokens.push_back(cjkRun[i] + cjkRun[i + 1]);
+        }
+        cjkRun.clear();
+    };
+
+    size_t i = 0;
+    while (i < s.size()) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c < 0x80) {
+            flushCjk();
+            if (c == ' ' || c == '-' || c == '(' || c == ')' || c == ',' || c == '/') {
+                flushAscii();
+            } else {
+                asciiWord.push_back(static_cast<char>(c));
+            }
+            ++i;
+        } else {
+            flushAscii();
+            int len = utf8CharLen(c);
+            if (i + len > s.size()) len = static_cast<int>(s.size() - i);
+            cjkRun.push_back(s.substr(i, len));
+            i += len;
+        }
+    }
+    flushAscii();
+    flushCjk();
+    return tokens;
+}
+
 }  // namespace
 
 std::string normalizeForMatch(const std::string& s) {
@@ -107,9 +161,67 @@ std::string normalizeForMatch(const std::string& s) {
     return normalizeCollab(trimmed);
 }
 
+std::string normalizeQuery(const std::string& title) {
+    // 移除成对括号及内容：ASCII () []、中文全角（）【】
+    // 全角字节：（=EF BC 88, ）=EF BC 89, 【=E3 80 90, 】=E3 80 91
+    std::string out;
+    out.reserve(title.size());
+    int depth = 0;
+    size_t i = 0;
+    while (i < title.size()) {
+        unsigned char c = static_cast<unsigned char>(title[i]);
+        bool isOpen = (c == '(' || c == '[');
+        bool isClose = (c == ')' || c == ']');
+        size_t adv = 1;
+        if (c == 0xEF && i + 2 < title.size() &&
+            (unsigned char)title[i+1] == 0xBC) {
+            if ((unsigned char)title[i+2] == 0x88) { isOpen = true; adv = 3; }
+            else if ((unsigned char)title[i+2] == 0x89) { isClose = true; adv = 3; }
+        } else if (c == 0xE3 && i + 2 < title.size() &&
+                   (unsigned char)title[i+1] == 0x80) {
+            if ((unsigned char)title[i+2] == 0x90) { isOpen = true; adv = 3; }
+            else if ((unsigned char)title[i+2] == 0x91) { isClose = true; adv = 3; }
+        }
+        if (isOpen) { ++depth; i += adv; continue; }
+        if (isClose) { if (depth > 0) --depth; i += adv; continue; }
+        if (depth == 0) out.append(title, i, adv);
+        i += adv;
+    }
+
+    // 移除 feat./ft./featuring 及其后内容（大小写不敏感，词边界在空格后）
+    static const char* kFeatMarkers[] = {" feat.", " feat ", " ft.", " ft ", " featuring "};
+    std::string lower;
+    lower.resize(out.size());
+    for (size_t k = 0; k < out.size(); ++k)
+        lower[k] = static_cast<char>(std::tolower(static_cast<unsigned char>(out[k])));
+    size_t cut = std::string::npos;
+    for (const char* m : kFeatMarkers) {
+        size_t p = lower.find(m);
+        if (p != std::string::npos && p < cut) cut = p;
+    }
+    if (cut != std::string::npos) out = out.substr(0, cut);
+
+    // 折叠空白 + trim
+    std::string collapsed;
+    collapsed.reserve(out.size());
+    for (char ch : out) {
+        if (ch == ' ' || ch == '\t') {
+            if (!collapsed.empty() && collapsed.back() != ' ') collapsed.push_back(' ');
+        } else {
+            collapsed.push_back(ch);
+        }
+    }
+    while (!collapsed.empty() && collapsed.back() == ' ') collapsed.pop_back();
+    size_t start = 0;
+    while (start < collapsed.size() && collapsed[start] == ' ') ++start;
+    std::string trimmed = collapsed.substr(start);
+
+    return trimmed.empty() ? title : trimmed;
+}
+
 double jaccardSimilarity(const std::string& a, const std::string& b) {
-    auto ta = tokenize(a);
-    auto tb = tokenize(b);
+    auto ta = buildMatchTokens(a);
+    auto tb = buildMatchTokens(b);
     if (ta.empty() && tb.empty()) return 1.0;
     std::set<std::string> setA(ta.begin(), ta.end());
     std::set<std::string> setB(tb.begin(), tb.end());

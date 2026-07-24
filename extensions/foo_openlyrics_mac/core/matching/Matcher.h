@@ -20,6 +20,10 @@ std::string normalizeForMatch(const std::string& s);
 // 分词 + Jaccard 系数。公开以便测试。
 double jaccardSimilarity(const std::string& a, const std::string& b);
 
+// 搜索 query 归一化：移除成对括号（含中文全角）及其内容、feat/ft 标注，折叠空白。
+// 清理后为空则回退返回原串。公开以便 Provider 和测试复用。
+std::string normalizeQuery(const std::string& title);
+
 class Matcher {
 public:
     explicit Matcher(const MatchWeights& w = {});

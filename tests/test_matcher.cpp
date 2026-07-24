@@ -208,3 +208,59 @@ TEST(Matcher, TitleJaccard75) {
     int s = m.score(track, sr);
     EXPECT_EQ(s, 61);
 }
+
+// --- CJK bigram 相似度 ---
+
+TEST(JaccardSimilarity, CjkIdentical) {
+    EXPECT_DOUBLE_EQ(jaccardSimilarity("晴天", "晴天"), 1.0);
+}
+
+TEST(JaccardSimilarity, CjkPartialOverlap) {
+    // "第一天" bigram {第一,一天}; "每一天" bigram {每一,一天}
+    // 交集 {一天}=1, 并集 {第一,一天,每一}=3 -> 1/3
+    EXPECT_NEAR(jaccardSimilarity("第一天", "每一天"), 1.0/3.0, 0.01);
+}
+
+TEST(JaccardSimilarity, CjkNoOverlap) {
+    // "晴天" {晴天} vs "稻香" {稻香} -> 0
+    EXPECT_DOUBLE_EQ(jaccardSimilarity("晴天", "稻香"), 0.0);
+}
+
+TEST(JaccardSimilarity, CjkSingleChar) {
+    // 单字符段用单字 token："火" vs "火" -> 1.0
+    EXPECT_DOUBLE_EQ(jaccardSimilarity("火", "火"), 1.0);
+}
+
+TEST(JaccardSimilarity, MixedCjkAscii) {
+    // "陈奕迅 eason" -> CJK 段 {陈奕,奕迅} + ASCII 词 {eason}
+    // 与自身 -> 1.0
+    EXPECT_DOUBLE_EQ(jaccardSimilarity("陈奕迅 eason", "陈奕迅 eason"), 1.0);
+}
+
+// --- normalizeQuery ---
+
+TEST(NormalizeQuery, StripsParens) {
+    EXPECT_EQ(normalizeQuery("Love Story (Taylor's Version)"), "Love Story");
+}
+
+TEST(NormalizeQuery, StripsFullWidthParens) {
+    // 中文全角括号（电影主题曲）
+    EXPECT_EQ(normalizeQuery("情非得已\xEF\xBC\x88电影主题曲\xEF\xBC\x89"), "情非得已");
+}
+
+TEST(NormalizeQuery, StripsBrackets) {
+    EXPECT_EQ(normalizeQuery("告白气球\xE3\x80\x90Live\xE3\x80\x91"), "告白气球");
+}
+
+TEST(NormalizeQuery, StripsFeat) {
+    EXPECT_EQ(normalizeQuery("Song feat. Artist B"), "Song");
+}
+
+TEST(NormalizeQuery, PlainTitleUnchanged) {
+    EXPECT_EQ(normalizeQuery("晴天"), "晴天");
+}
+
+TEST(NormalizeQuery, AllInParensFallbackToOriginal) {
+    // 清理后为空则回退原串
+    EXPECT_EQ(normalizeQuery("(instrumental)"), "(instrumental)");
+}
