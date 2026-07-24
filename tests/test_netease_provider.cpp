@@ -410,3 +410,44 @@ TEST(NetEaseProvider, SourceIdIsNetEase) {
     NetEaseProvider provider(http, crypto);
     EXPECT_EQ(provider.sourceId(), SourceId::NetEase);
 }
+
+TEST(NetEaseProvider, ParsesUpToTenSongs) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
+    std::string songs;
+    for (int i = 0; i < 10; ++i) {
+        if (i) songs += ",";
+        songs += "{\"id\":" + std::to_string(1000 + i) +
+                 ",\"name\":\"n" + std::to_string(i) +
+                 "\",\"ar\":[{\"name\":\"a\"}],\"al\":{\"name\":\"al\"},\"dt\":200000}";
+    }
+    http.searchResp.status = 200;
+    http.searchResp.body = "{\"code\":200,\"result\":{\"songs\":[" + songs + "]}}";
+
+    NetEaseProvider p(http, crypto);
+    TrackMeta t; t.title = "n"; t.artist = "";
+    std::vector<SearchResult> out;
+    p.search(t, out);
+    EXPECT_EQ(out.size(), 10u);
+}
+
+TEST(NetEaseProvider, QueryStripsParens) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
+    http.searchResp.status = 200;
+    http.searchResp.body = "{\"code\":200,\"result\":{\"songs\":[]}}";
+
+    NetEaseProvider p(http, crypto);
+    TrackMeta t; t.title = "晴天 (Live)"; t.artist = "周杰伦";
+    std::vector<SearchResult> out;
+    p.search(t, out);
+    // NetEase query 经 eapiEncrypt 加密，明文在 ecbEncrypt 的输入 plain 里：应含清理后的
+    // "晴天"，不含被移除的 "Live"。
+    ASSERT_FALSE(crypto.ecbCalls.empty());
+    EXPECT_NE(crypto.ecbCalls[0].plain.find("晴天"), std::string::npos);
+    EXPECT_EQ(crypto.ecbCalls[0].plain.find("Live"), std::string::npos);
+}
