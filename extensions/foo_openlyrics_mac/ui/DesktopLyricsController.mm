@@ -102,6 +102,15 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     DeskEdgeBottom = 1 << 3,
 };
 
+// 允许成为 key 窗口以接收方向键；保持不成为 main，避免整体夺取应用主窗口地位。
+@interface DeskLyricsPanel : NSPanel
+@end
+
+@implementation DeskLyricsPanel
+- (BOOL)canBecomeKeyWindow { return YES; }
+- (BOOL)canBecomeMainWindow { return NO; }
+@end
+
 // 负责鼠标拖拽：普通=移动、Command=缩放、Option=偏移微调、边缘=系统 resize。
 // 任何拖拽模式均显示非透明边框，解决透明窗口无边界反馈问题。
 // 提供右键菜单：播放控制（一级）、重新搜索（按在线源）、删除当前歌词文件、显示行数、偏移调整。
@@ -303,6 +312,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 #pragma mark - 鼠标事件
 
 - (void)mouseDown:(NSEvent *)event {
+    [self.window makeFirstResponder:self];
     NSPoint loc = [self convertPoint:[event locationInWindow] fromView:nil];
     DeskEdge edges = [self edgesForPoint:loc];
     if (edges != DeskEdgeNone) {
@@ -512,6 +522,24 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     }
 
     if (steps != 0 && self.onSeekLineSteps) self.onSeekLineSteps(steps);
+}
+
+- (BOOL)acceptsFirstResponder { return YES; }
+
+- (void)keyDown:(NSEvent *)event {
+    NSString *chars = event.charactersIgnoringModifiers;
+    if (chars.length == 1) {
+        unichar c = [chars characterAtIndex:0];
+        if (c == NSUpArrowFunctionKey) {
+            if (self.onSeekLineSteps) self.onSeekLineSteps(-1);
+            return;
+        }
+        if (c == NSDownArrowFunctionKey) {
+            if (self.onSeekLineSteps) self.onSeekLineSteps(1);
+            return;
+        }
+    }
+    [super keyDown:event];
 }
 
 #pragma mark - 右键菜单
@@ -808,7 +836,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 
     NSRect initialFrame = NSMakeRect(panelX, panelY, panelW, panelH);
 
-    _panel = [[NSPanel alloc] initWithContentRect:initialFrame
+    _panel = [[DeskLyricsPanel alloc] initWithContentRect:initialFrame
         styleMask:NSWindowStyleMaskBorderless
               | NSWindowStyleMaskNonactivatingPanel
               | NSWindowStyleMaskResizable
