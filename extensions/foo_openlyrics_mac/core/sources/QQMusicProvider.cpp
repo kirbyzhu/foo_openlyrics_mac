@@ -3,6 +3,7 @@
 #include "net/JsonField.h"
 #include "net/UrlEncode.h"
 #include "parser/LrcParser.h"
+#include "matching/Matcher.h"
 #include <set>
 #include <algorithm>
 
@@ -36,7 +37,7 @@ bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
     auto tryQuery = [&](const std::string& query) {
         std::string searchUrl = std::string(kSearchUrl) +
                                 "?w=" + urlEncodeComponent(query) +
-                                "&p=1&n=5&format=json";
+                                "&p=1&n=10&format=json";
 
         std::vector<std::pair<std::string, std::string>> headers = {
             {"Referer", "https://y.qq.com"},
@@ -48,11 +49,11 @@ bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
         int64_t code = 0;
         if (!jsonGetInt(searchResp.body, "code", code) || code != 0) return false;
 
-        return extractSongList(searchResp.body, out, 5);
+        return extractSongList(searchResp.body, out, 10);
     };
 
-    std::string fullQuery = track.artist.empty() ? track.title
-                                                  : track.artist + " " + track.title;
+    std::string nq = normalizeQuery(track.title);
+    std::string fullQuery = track.artist.empty() ? nq : track.artist + " " + nq;
     bool ok = tryQuery(fullQuery);
 
     // 若 artist+title 搜索结果 < 3 条且 artist 非空，追加 title-only 搜索
@@ -60,13 +61,14 @@ bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
         std::set<std::string> seen;
         for (const auto& r : out) seen.insert(r.id);
         size_t before = out.size();
-        tryQuery(track.title);
+        tryQuery(nq);
         // 去重
         out.erase(std::remove_if(out.begin() + before, out.end(),
                     [&](const SearchResult& r) { return seen.count(r.id); }),
                   out.end());
     }
 
+    if (out.size() > 10) out.resize(10);
     return ok || !out.empty();
 }
 

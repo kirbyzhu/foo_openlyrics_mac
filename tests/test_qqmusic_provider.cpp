@@ -285,3 +285,38 @@ TEST(QQMusicProvider, SourceIdIsQQMusic) {
     QQMusicProvider provider(http, crypto);
     EXPECT_EQ(provider.sourceId(), SourceId::QQMusic);
 }
+
+TEST(QQMusicProvider, ParsesUpToTenSongs) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    std::string list;
+    for (int i = 0; i < 10; ++i) {
+        if (i) list += ",";
+        list += "{\"songmid\":\"m" + std::to_string(i) +
+                "\",\"songname\":\"n\",\"singer\":[{\"name\":\"a\"}],"
+                "\"albumname\":\"al\",\"interval\":200}";
+    }
+    http.searchResp.status = 200;
+    http.searchResp.body = "{\"code\":0,\"data\":{\"song\":{\"list\":[" + list + "]}}}";
+
+    QQMusicProvider p(http, crypto);
+    TrackMeta t; t.title = "n"; t.artist = "";
+    std::vector<SearchResult> out;
+    p.search(t, out);
+    EXPECT_EQ(out.size(), 10u);
+}
+
+TEST(QQMusicProvider, QueryStripsParens) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    http.searchResp.status = 200;
+    http.searchResp.body = "{\"code\":0,\"data\":{\"song\":{\"list\":[]}}}";
+
+    QQMusicProvider p(http, crypto);
+    TrackMeta t; t.title = "晴天 (Live)"; t.artist = "周杰伦";
+    std::vector<SearchResult> out;
+    p.search(t, out);
+    // QQ query 在 URL 的 w= 参数中，urlEncode 后中文/空格被转义；
+    // 断言未编码的 "Live" 不出现（括号内容已被移除）
+    EXPECT_EQ(http.lastUrl.find("Live"), std::string::npos);
+}
