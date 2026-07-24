@@ -36,9 +36,7 @@ static const NSTimeInterval kSaveDebounce = 0.3;
 static const CGFloat kCornerRadius = 14.0;      // 面板圆角半径，贴近 macOS 小部件风格
 static const CGFloat kContentInset = 6.0;       // 歌词视图相对面板的内边距，避开圆角
 static const NSTimeInterval kHoverShowDelay = 1.0;  // 悬停多久后才显现背景，避免鼠标掠过误触发
-static const int64_t kScrollMsPerWheelTick = 100;    // 滚轮每刻度偏移量（毫秒）
-static const NSTimeInterval kScrollCommitDelay = 0.8; // 滚轮停止后多久自动提交偏移
-static const int64_t kArrowOffsetStepMs = 100;       // 方向键每次调整的偏移量（毫秒）
+static const CGFloat kTapPixelsPerStep = 40.0;       // 触控板精确滚动每累积此像素打轴一步
 
 typedef NS_ENUM(NSInteger, DeskMenuTag) {
     DeskMenuTagReSearchLrcLib = 1,
@@ -119,6 +117,8 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 @interface DeskLyricsContent : NSView
 @property(nonatomic, copy) void (^onOffsetDelta)(int64_t deltaMs);
 @property(nonatomic, copy) void (^onOffsetCommit)(int64_t totalDeltaMs);
+@property(nonatomic, copy) void (^onTapAnchor)(void);        // 右键锁定当前句为锚点
+@property(nonatomic, copy) void (^onTapStep)(int dir);       // 上下键/滚轮打轴一步：+1 前进/-1 回退
 @property(nonatomic, copy) void (^onMoveTo)(NSPoint origin);
 @property(nonatomic, copy) void (^onResizeFrame)(NSRect frame);
 @property(nonatomic, copy) void (^onResizeCommit)(void);
@@ -141,9 +141,6 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 
 // 在面板中央弹出一条瞬时提示（复用 HUD），短暂显示后自动淡出。
 - (void)showMessage:(NSString *)text;
-
-// 当前滚轮累积的偏移量（毫秒），供外部在提交后清零。
-@property(nonatomic, assign) int64_t scrollAccumMs;
 @end
 
 @implementation DeskLyricsContent {
@@ -171,8 +168,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     BOOL _interacting;              // 拖拽/缩放/偏移微调进行中
     BOOL _bgShown;                  // 背景当前是否可见，去抖动画
 
-    int64_t _scrollAccumMs;         // 滚轮累积偏移量
-    NSTimer *_scrollCommitTimer;    // 滚轮停止后延迟提交
+    CGFloat _tapAccumPx;            // 触控板精确滚动的像素累积，达阈值打轴一步
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -497,7 +493,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     }];
 }
 
-#pragma mark - 滚轮偏移
+#pragma mark - 滚轮/方向键打轴
 
 - (void)scrollWheel:(NSEvent *)event {
     // 拖拽/缩放/边缘调整进行中时不响应，交回系统
@@ -509,45 +505,19 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     CGFloat dy = event.deltaY;
     if (fabs(dy) < 0.01) return;
 
-    int64_t deltaMs;
+    int steps = 0;
     if (event.hasPreciseScrollingDeltas) {
-        // 触控板：每像素 ≈ 10ms；上滑(dy>0)->歌词延后(deltaMs<0)
-        deltaMs = static_cast<int64_t>(-dy * 10.0);
+        // 触控板：按像素累积，达阈值一步；下滑(dy<0)->前进(dir=+1)
+        _tapAccumPx += dy;
+        while (_tapAccumPx <= -kTapPixelsPerStep) { _tapAccumPx += kTapPixelsPerStep; steps += 1; }
+        while (_tapAccumPx >= kTapPixelsPerStep)  { _tapAccumPx -= kTapPixelsPerStep; steps -= 1; }
     } else {
-        // 传统鼠标滚轮：每刻度 kScrollMsPerWheelTick；上滚(dy>0)->歌词延后
-        deltaMs = static_cast<int64_t>(-dy * kScrollMsPerWheelTick);
+        // 传统滚轮：每格一步，下滚(dy<0)->前进
+        steps = (dy < 0) ? 1 : -1;
     }
 
-    [self applyOffsetDelta:deltaMs];
+    if (steps != 0 && self.onTapStep) self.onTapStep(steps > 0 ? 1 : -1);
 }
-
-// 累积一次偏移增量：实时 HUD + 实时同步 + 重置 0.8s 延迟提交计时器。滚轮与方向键共用。
-- (void)applyOffsetDelta:(int64_t)deltaMs {
-    if (deltaMs == 0) return;
-
-    _scrollAccumMs += deltaMs;
-
-    // 实时 HUD 反馈，复用 Option+拖拽的显示逻辑
-    [self showOffsetHudWithDelta:_scrollAccumMs];
-
-    // 实时同步到歌词视图
-    if (self.onOffsetDelta) self.onOffsetDelta(_scrollAccumMs);
-
-    // 重置延迟提交计时器
-    [_scrollCommitTimer invalidate];
-    _scrollCommitTimer = [NSTimer scheduledTimerWithTimeInterval:kScrollCommitDelay
-                                                         repeats:NO
-                                                           block:^(NSTimer *timer) {
-        if (self.onOffsetCommit && self->_scrollAccumMs != 0) {
-            self.onOffsetCommit(self->_scrollAccumMs);
-        }
-        self->_scrollAccumMs = 0;
-        [self fadeHud];
-    }];
-}
-
-- (int64_t)scrollAccumMs { return _scrollAccumMs; }
-- (void)setScrollAccumMs:(int64_t)v { _scrollAccumMs = v; }
 
 - (BOOL)acceptsFirstResponder { return YES; }
 
@@ -555,12 +525,16 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     NSString *chars = event.charactersIgnoringModifiers;
     if (chars.length == 1) {
         unichar c = [chars characterAtIndex:0];
-        if (c == NSUpArrowFunctionKey) {
-            [self applyOffsetDelta:-kArrowOffsetStepMs];   // 上：歌词延后
+        if (c == NSRightArrowFunctionKey) {
+            if (self.onTapAnchor) self.onTapAnchor();   // 右键：锁定当前句为锚点
             return;
         }
         if (c == NSDownArrowFunctionKey) {
-            [self applyOffsetDelta:kArrowOffsetStepMs];    // 下：歌词提前
+            if (self.onTapStep) self.onTapStep(1);      // 下键：前进并写时标
+            return;
+        }
+        if (c == NSUpArrowFunctionKey) {
+            if (self.onTapStep) self.onTapStep(-1);     // 上键：回退撤销
             return;
         }
     }
@@ -755,6 +729,10 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     int64_t _trackRequestToken;
     std::string _currentLyricPath;   // 当前歌词来源的本地文件绝对路径；内嵌标签/未找到时为空
 
+    BOOL _tapActive;                              // 是否处于打轴模式
+    int _tapAnchorLine;                           // 当前手动高亮行（data.lines 下标，-1 合法）
+    std::vector<std::pair<int,int64_t>> _tapUndo; // 每次前进前保存 (行下标, 原 timeMs)，供上键撤销
+
     int _lrclibFailures;
     int _neteaseFailures;
     int _qqmusicFailures;
@@ -926,6 +904,17 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         __typeof__(self) strongSelf = weakSelf;
         if (strongSelf == nil) return;
         [strongSelf commitOffsetDelta:totalDeltaMs];
+    };
+
+    _contentView.onTapAnchor = ^{
+        __typeof__(self) strongSelf = weakSelf;
+        if (strongSelf == nil) return;
+        [strongSelf tapAnchorAtCurrent];
+    };
+    _contentView.onTapStep = ^(int dir) {
+        __typeof__(self) strongSelf = weakSelf;
+        if (strongSelf == nil) return;
+        [strongSelf tapStep:dir];
     };
 
     // 右键菜单回调
@@ -1146,6 +1135,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 #pragma mark - PlaybackHubObserving
 
 - (void)playbackHubDidChange {
+    [self exitTapSync];
     [self handleTrackChanged];
 }
 
@@ -1386,6 +1376,11 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     PlaybackHub *hub = [PlaybackHub sharedHub];
     if (![hub hasTrack]) return;
 
+    if (_tapActive) {                       // 打轴中：冻结在手动锚点，不随播放定位
+        [self freezeHighlightTo:_tapAnchorLine];
+        return;
+    }
+
     int64_t posMs = [self currentPositionMs];
     if (posMs < 0) posMs = 0;
 
@@ -1400,6 +1395,81 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         return static_cast<int64_t>(pc->playback_get_position() * 1000.0 + 0.5);
     }
     return [[PlaybackHub sharedHub] positionMs];
+}
+
+#pragma mark - 逐句手动打轴
+
+// 冻结桌面高亮到指定行（progress=0），避免下一次 tickSync 用播放位置覆盖。
+- (void)freezeHighlightTo:(int)line {
+    openlyrics::SyncResult r;
+    r.lineIndex = line;
+    r.progress = 0.0;
+    [_lyricView setSyncResult:r];
+}
+
+// 右键：锁定当前高亮句为锚点，进入打轴模式。
+- (void)tapAnchorAtCurrent {
+    if (_currentLyricData.lines.empty()) return;
+    _tapActive = YES;
+    openlyrics::SyncResult cur = openlyrics::SyncEngine::locate(
+        _currentLyricData, [self currentPositionMs], _currentExtraOffsetMs);
+    _tapAnchorLine = cur.lineIndex;
+    _tapUndo.clear();
+    [self freezeHighlightTo:_tapAnchorLine];
+    [[PlaybackHub sharedHub] notifyManualHighlightLine:_tapAnchorLine];
+}
+
+// 上下键/滚轮一步：dir>0 前进并写时标，dir<0 回退撤销。
+- (void)tapStep:(int)dir {
+    if (!_tapActive || _currentLyricData.lines.empty()) return;
+
+    if (dir > 0) {
+        int next = openlyrics::SyncEngine::adjacentTimedLine(_currentLyricData, _tapAnchorLine, 1);
+        if (next == _tapAnchorLine || next < 0) return;   // 末句停住 / 无时标行
+        _tapUndo.push_back({next, _currentLyricData.lines[next].timeMs});
+        _currentLyricData.lines[next].timeMs = [self currentPositionMs];
+        _tapAnchorLine = next;
+    } else {
+        // 撤销当前锚点行本次打轴（若栈顶正是它）
+        if (!_tapUndo.empty() && _tapUndo.back().first == _tapAnchorLine) {
+            _currentLyricData.lines[_tapAnchorLine].timeMs = _tapUndo.back().second;
+            _tapUndo.pop_back();
+        }
+        int prev = openlyrics::SyncEngine::adjacentTimedLine(_currentLyricData, _tapAnchorLine, -1);
+        if (prev == _tapAnchorLine) {                     // 首句停住：仅可能已撤销，无行移动
+            [self persistTapAndBroadcast];
+            return;
+        }
+        _tapAnchorLine = prev;
+    }
+    [self persistTapAndBroadcast];
+}
+
+// 重建 sourceText、写盘、刷新桌面高亮、广播主面板（数据 + 手动高亮）。
+- (void)persistTapAndBroadcast {
+    _currentLyricData.sourceText = openlyrics::LrcSerializer::serialize(_currentLyricData);
+    _currentLyricData.synced = true;
+
+    openlyrics::TrackMeta meta = [[PlaybackHub sharedHub] currentTrack];
+    openlyrics::FileSystemAdapter fsAdapter;
+    openlyrics::LyricStore store(fsAdapter);
+    if (store.forceSave(meta, _currentLyricData)) {
+        _currentLyricPath = openlyrics::LocalFileSource::stripExtension(meta.path) + ".lrc";
+        _contentView.canDeleteLyric = YES;
+    }
+
+    [_lyricView setLyricData:_currentLyricData];
+    [self freezeHighlightTo:_tapAnchorLine];
+    [self broadcastLyricChangedFromSelf];                       // 主面板重载新时标
+    [[PlaybackHub sharedHub] notifyManualHighlightLine:_tapAnchorLine];  // 主面板高亮同一句
+}
+
+// 退出打轴，恢复自动跟随。
+- (void)exitTapSync {
+    if (!_tapActive) return;
+    _tapActive = NO;
+    _tapUndo.clear();
+    [[PlaybackHub sharedHub] notifyManualHighlightLine:-1];
 }
 
 #pragma mark - 偏移拖拽提交
@@ -1460,6 +1530,11 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 
 - (void)windowWillClose:(NSNotification *)notification {
     (void)notification;
+}
+
+- (void)windowDidResignKey:(NSNotification *)notification {
+    (void)notification;
+    [self exitTapSync];
 }
 
 @end
