@@ -70,6 +70,7 @@ static const double kOffsetMax = 30.0;
 @implementation LyricPanelController {
     openlyrics::LyricData _currentLyricData;
     int64_t _currentExtraOffsetMs;
+    NSInteger _manualHighlightLine;   // 打轴手动高亮行；-1=自动跟随
     std::string _currentSourceLabel;
     int _lrclibFailures;
     int _neteaseFailures;
@@ -78,6 +79,7 @@ static const double kOffsetMax = 30.0;
 }
 
 - (void)loadView {
+    _manualHighlightLine = -1;
     _config = openlyrics::ConfigAdapter().load();
 
     // 应用全局配置
@@ -669,6 +671,18 @@ static const double kOffsetMax = 30.0;
     [self handleTrackChanged];
 }
 
+- (void)playbackHubManualHighlightDidChange:(NSInteger)lineIndex {
+    _manualHighlightLine = lineIndex;
+    if (lineIndex >= 0) {
+        openlyrics::SyncResult r;
+        r.lineIndex = (int)lineIndex;
+        r.progress = 0.0;
+        [self.lyricView setSyncResult:r];
+    } else {
+        [self tickSync];   // 恢复自动：立即按当前播放位置刷新一次
+    }
+}
+
 - (void)playbackHubLyricDidChange {
     // 桌面歌词变更后从本地文件/标签重新加载，不触发在线搜索
     PlaybackHub *hub = [PlaybackHub sharedHub];
@@ -833,6 +847,14 @@ static const double kOffsetMax = 30.0;
 - (void)tickSync {
     PlaybackHub *hub = [PlaybackHub sharedHub];
     if (![hub hasTrack]) return;
+
+    if (_manualHighlightLine >= 0) {           // 打轴中：显示桌面广播的手动高亮行
+        openlyrics::SyncResult r;
+        r.lineIndex = (int)_manualHighlightLine;
+        r.progress = 0.0;
+        [self.lyricView setSyncResult:r];
+        return;
+    }
 
     auto pc = playback_control::get();
     int64_t posMs = pc.is_empty() ? [hub positionMs]
