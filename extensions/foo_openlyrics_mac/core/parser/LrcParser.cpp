@@ -99,6 +99,42 @@ std::string stripInlineTimeTags(const std::string& s) {
     return out;
 }
 
+// 网易云 YRC 逐字行 {"t":ms,"c":[{"tx":".."},{"tx":".."}]}：提取行首 t 毫秒与所有 tx
+// 文本拼接。网易云常把作词/作曲等元数据以该格式混入 lrc 字段开头，标准 LRC 解析器不识别
+// 会把整行 JSON 当文本显示。非该结构返回 false（普通花括号文本行不受影响）。
+bool parseYrcLine(const std::string& raw, int64_t& outMs, std::string& outText) {
+    std::string s = trim(raw);
+    const std::string prefix = "{\"t\":";
+    if (s.compare(0, prefix.size(), prefix) != 0) return false;
+    if (s.find("\"c\":[") == std::string::npos) return false;
+
+    size_t tp = prefix.size();
+    int64_t ms = 0;
+    bool any = false;
+    while (tp < s.size() && std::isdigit((unsigned char)s[tp])) {
+        ms = ms * 10 + (s[tp] - '0');
+        ++tp;
+        any = true;
+    }
+    if (!any) return false;
+
+    std::string text;
+    const std::string txKey = "\"tx\":\"";
+    size_t p = 0;
+    while ((p = s.find(txKey, p)) != std::string::npos) {
+        p += txKey.size();
+        while (p < s.size() && s[p] != '"') {
+            if (s[p] == '\\' && p + 1 < s.size()) { text.push_back(s[p + 1]); p += 2; }
+            else { text.push_back(s[p]); ++p; }
+        }
+        if (p < s.size()) ++p;  // 跳过结束引号
+    }
+
+    outMs = ms;
+    outText = text;
+    return true;
+}
+
 }  // namespace
 
 LyricData LrcParser::parse(const std::string& text) {
@@ -107,6 +143,17 @@ LyricData LrcParser::parse(const std::string& text) {
     std::string raw;
     while (std::getline(in, raw)) {
         if (!raw.empty() && raw.back() == '\r') raw.pop_back();
+
+        // 网易云 YRC 逐字行：转成带时标的标准行，避免整行 JSON 当文本显示
+        int64_t yrcMs = 0;
+        std::string yrcText;
+        if (parseYrcLine(raw, yrcMs, yrcText)) {
+            LyricLine line;
+            line.timeMs = yrcMs;
+            line.text = yrcText;
+            data.lines.push_back(line);
+            continue;
+        }
 
         // 收集本行开头连续的 [] 标签
         std::vector<int64_t> times;

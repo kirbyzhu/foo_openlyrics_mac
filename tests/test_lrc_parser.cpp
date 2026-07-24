@@ -179,3 +179,42 @@ TEST(LrcParser, SourceTextEmptyForEmptyInput) {
     LyricData d = LrcParser::parse("");
     EXPECT_EQ(d.sourceText, "");
 }
+
+// 网易云 YRC 逐字格式行：{"t":ms,"c":[{"tx":".."},..]} 应被解析为带时标的标准行，
+// 时标取行首 t（毫秒），文本为所有 tx 拼接。
+TEST(LrcParser, YrcMetadataLine) {
+    LyricData d = LrcParser::parse(
+        "{\"t\":0,\"c\":[{\"tx\":\"作词: \"},{\"tx\":\"Stuart Gotz\"}]}");
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_EQ(d.lines[0].timeMs, 0);
+    EXPECT_EQ(d.lines[0].text, "作词: Stuart Gotz");
+}
+
+TEST(LrcParser, YrcLineWithNonZeroTime) {
+    LyricData d = LrcParser::parse(
+        "{\"t\":1000,\"c\":[{\"tx\":\"作曲: \"},{\"tx\":\"Stuart Gotz\"}]}");
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_EQ(d.lines[0].timeMs, 1000);
+    EXPECT_EQ(d.lines[0].text, "作曲: Stuart Gotz");
+}
+
+TEST(LrcParser, YrcMixedWithStandardLrc) {
+    // 网易云常见：YRC 元数据行在前，标准 LRC 在后
+    LyricData d = LrcParser::parse(
+        "{\"t\":0,\"c\":[{\"tx\":\"作词: \"},{\"tx\":\"A\"}]}\n"
+        "[00:08.31]We come on the sloop John B");
+    ASSERT_EQ(d.lines.size(), 2u);
+    EXPECT_EQ(d.lines[0].timeMs, 0);
+    EXPECT_EQ(d.lines[0].text, "作词: A");
+    EXPECT_EQ(d.lines[1].timeMs, 8310);
+    EXPECT_EQ(d.lines[1].text, "We come on the sloop John B");
+    EXPECT_TRUE(d.synced);
+}
+
+TEST(LrcParser, NonYrcBraceLineStaysPlain) {
+    // 不是 YRC 结构的花括号文本行保持原样（不误判）
+    LyricData d = LrcParser::parse("{not yrc}");
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_EQ(d.lines[0].timeMs, -1);
+    EXPECT_EQ(d.lines[0].text, "{not yrc}");
+}
