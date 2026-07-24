@@ -1302,7 +1302,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         openlyrics::CryptoAdapter crypto;
         openlyrics::LrcLibProvider lrcLib(http);
         openlyrics::NetEaseProvider netease(http, crypto);
-        openlyrics::QQMusicProvider qqmusic(http, crypto);
+        openlyrics::QQMusicProvider qqmusic(http);
 
         for (const auto& src : config.sources) {
             if (!src.enabled) continue;
@@ -1391,7 +1391,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         openlyrics::CryptoAdapter crypto;
         openlyrics::LrcLibProvider lrcLib(http);
         openlyrics::NetEaseProvider netease(http, crypto);
-        openlyrics::QQMusicProvider qqmusic(http, crypto);
+        openlyrics::QQMusicProvider qqmusic(http);
 
         std::vector<openlyrics::LyricSource*> onlineSources;
         if (key == "lrclib") onlineSources.push_back(&lrcLib);

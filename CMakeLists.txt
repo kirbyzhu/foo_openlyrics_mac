@@ -69,8 +69,6 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/ui/PreferencesViewController.mm
     # Plan 7 Task 2：桌面歌词浮动透明窗口控制器。
     extensions/foo_openlyrics_mac/ui/DesktopLyricsController.mm
-    # Plan 8：裸 RSA 模幂 C 封装，链接 OpenSSL libcrypto
-    extensions/foo_openlyrics_mac/platform/rsa_openssl.c
   )
   set_target_properties(foo_openlyrics PROPERTIES
     PREFIX ""
@@ -98,14 +96,9 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/ui
     # foobar2000-mac-helpers.h（FB2K_OBJC_CLASS 宏），fb2k_sdk 未把该目录设为 PUBLIC include 根
     ${CMAKE_SOURCE_DIR}/SDK-2025-03-07/foobar2000/helpers-mac
-    # OpenSSL 头文件（rsa_openssl.c 需要）
-    /opt/homebrew/opt/openssl@3/include
   )
-  target_link_libraries(foo_openlyrics PRIVATE fb2k_sdk openlyrics_core "-framework Security"
-    # libcrypto 静态链接——裸 RSA 用于 NetEase weapi
-    /opt/homebrew/opt/openssl@3/lib/libcrypto.a)
+  target_link_libraries(foo_openlyrics PRIVATE fb2k_sdk openlyrics_core)
   # 移除局部符号，缩减符号表体积（纯符号表操作，不影响代码与初始化段）。
-  # 注：组件体积主体来自静态链接的 libcrypto.a（NetEase RSA），根治需去 OpenSSL 依赖。
   target_link_options(foo_openlyrics PRIVATE -Wl,-x)
 
   set(FOO_OPENLYRICS_BUNDLE "${CMAKE_CURRENT_BINARY_DIR}/foo_openlyrics.component")

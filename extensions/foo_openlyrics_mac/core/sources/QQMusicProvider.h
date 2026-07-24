@@ -1,15 +1,14 @@
 #pragma once
 #include "sources/LyricSource.h"
 #include "ports/HttpClient.h"
-#include "ports/CryptoPort.h"
 
 namespace openlyrics {
 
 // 从 QQ 音乐按 artist+title 搜索并拉取歌词。
-// 纯 C++，网络经由 HttpClient，解密经由 CryptoPort（3DES），便于 TDD。
+// 纯 C++，网络经由 HttpClient；歌词为明文 base64，无需解密，便于 TDD。
 class QQMusicProvider : public LyricSource {
 public:
-    QQMusicProvider(HttpClient& http, CryptoPort& crypto);
+    explicit QQMusicProvider(HttpClient& http);
 
     bool search(const TrackMeta& track, std::vector<SearchResult>& out,
                 CancelToken* cancel = nullptr) override;
@@ -22,7 +21,6 @@ private:
     bool extractSongList(const std::string& json, std::vector<SearchResult>& out, int limit);
 
     HttpClient& http_;
-    CryptoPort& crypto_;
 };
 
 }  // namespace openlyrics

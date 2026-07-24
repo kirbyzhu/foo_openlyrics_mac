@@ -40,22 +40,6 @@ public:
 // FakeCrypto: 记录调用参数并返回预置值。
 class FakeCrypto : public CryptoPort {
 public:
-    struct AesCbcCall {
-        std::string plain;
-        std::string key;
-        std::string iv;
-    };
-    std::vector<AesCbcCall> aesCalls;
-    std::string aesResult;
-
-    struct RsaCall {
-        std::string plain;
-        std::string modulus;
-        std::string exponent;
-    };
-    RsaCall lastRsaCall;
-    std::string rsaResult;
-
     struct EcbCall {
         std::string plain;
         std::string key;
@@ -67,29 +51,12 @@ public:
     std::string md5LastInput;
     bool md5Called = false;
 
-    std::string aes128CbcEncrypt(const std::string& plain,
-                                  const std::string& key,
-                                  const std::string& iv) override {
-        aesCalls.push_back({plain, key, iv});
-        return aesResult;
-    }
-
     std::string aes128EcbEncrypt(const std::string& plain,
                                   const std::string& key) override {
         ecbCalls.push_back({plain, key});
         return ecbResult;
     }
 
-    std::string rsaRawEncrypt(const std::string& plain,
-                                const std::string& modulusHex,
-                                const std::string& exponentHex) override {
-        lastRsaCall = {plain, modulusHex, exponentHex};
-        return rsaResult;
-    }
-
-    std::string tripleDesEcbDecrypt(const std::string&, const std::string&) override {
-        return {};
-    }
     std::string md5Hex(const std::string& input) override {
         md5Called = true;
         md5LastInput = input;

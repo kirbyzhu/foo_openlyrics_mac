@@ -28,8 +28,8 @@ bool extractLyricText(const std::string& resp, std::string& lrcText) {
 
 }  // namespace
 
-QQMusicProvider::QQMusicProvider(HttpClient& http, CryptoPort& crypto)
-    : http_(http), crypto_(crypto) {}
+QQMusicProvider::QQMusicProvider(HttpClient& http)
+    : http_(http) {}
 
 bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& out,
                              CancelToken* cancel) {

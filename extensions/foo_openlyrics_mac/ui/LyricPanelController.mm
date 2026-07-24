@@ -349,7 +349,7 @@ static const double kOffsetMax = 30.0;
         openlyrics::CryptoAdapter crypto;
         openlyrics::LrcLibProvider lrcLib(http);
         openlyrics::NetEaseProvider netease(http, crypto);
-        openlyrics::QQMusicProvider qqmusic(http, crypto);
+        openlyrics::QQMusicProvider qqmusic(http);
 
         std::vector<openlyrics::LyricSource*> onlineSources = {&lrcLib, &netease, &qqmusic};
         openlyrics::Matcher matcher;
@@ -482,7 +482,7 @@ static const double kOffsetMax = 30.0;
             openlyrics::NetEaseProvider provider(http, crypto);
             ok = provider.fetchById(lyricId.UTF8String, data, cancel.get());
         } else if (sid == openlyrics::SourceId::QQMusic) {
-            openlyrics::QQMusicProvider provider(http, crypto);
+            openlyrics::QQMusicProvider provider(http);
             ok = provider.fetchById(lyricId.UTF8String, data, cancel.get());
         }
 
@@ -802,7 +802,7 @@ static const double kOffsetMax = 30.0;
         openlyrics::CryptoAdapter crypto;
         openlyrics::LrcLibProvider lrcLib(http);
         openlyrics::NetEaseProvider netease(http, crypto);
-        openlyrics::QQMusicProvider qqmusic(http, crypto);
+        openlyrics::QQMusicProvider qqmusic(http);
 
         for (const auto& src : config.sources) {
             if (!src.enabled) continue;
