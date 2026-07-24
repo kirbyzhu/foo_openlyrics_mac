@@ -2,3 +2,4 @@ SDK-2025-03-07/
 build*/
 *.fb2k-component
 .DS_Store
+.vscode/
