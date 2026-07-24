@@ -237,6 +237,36 @@ double jaccardSimilarity(const std::string& a, const std::string& b) {
 
 namespace {
 
+// 表示"不同录音/不同歌词"的候选标题标记（token 级、小写匹配）。
+// 命中即歌词与原曲不同：现场、外语翻唱、伴奏等。
+// 刻意不含裸 "version"——"Taylor's Version"/"Single Version"/"Album Version"
+// 歌词相同，不应惩罚；也不含 "remaster"（母带重制，歌词相同）。
+bool hasVariantMarkerMismatch(const std::string& queryTitle,
+                              const std::string& candTitle) {
+    static const std::set<std::string> kMarkers = {
+        "live", "instrumental", "karaoke", "acoustic", "remix", "cover",
+        "spanish", "french", "japanese", "korean", "german", "italian",
+        "portuguese", "cantonese", "mandarin",
+        "现场", "伴奏",
+    };
+    auto lowerTokenSet = [](const std::string& s) {
+        std::set<std::string> out;
+        for (const auto& t : buildMatchTokens(s)) {
+            std::string lo;
+            lo.reserve(t.size());
+            for (unsigned char c : t) lo.push_back(static_cast<char>(std::tolower(c)));
+            out.insert(lo);
+        }
+        return out;
+    };
+    std::set<std::string> q = lowerTokenSet(queryTitle);
+    std::set<std::string> c = lowerTokenSet(candTitle);
+    for (const auto& mk : kMarkers) {
+        if (c.count(mk) && !q.count(mk)) return true;  // 候选独有变体标记
+    }
+    return false;
+}
+
 int scoreText(const std::string& a, const std::string& b,
               const double jaccardThresholds[3]) {
     if (a.empty() || b.empty()) return 0;
@@ -270,7 +300,11 @@ bool Matcher::isLowConfidence(int s) const { return s >= kLowThreshold && s < kH
 
 int Matcher::scoreTitle(const std::string& a, const std::string& b) const {
     static const double kTitleJaccardThresholds[3] = {0.75, 0.5, 0.25};
-    return scoreText(a, b, kTitleJaccardThresholds);
+    int s = scoreText(a, b, kTitleJaccardThresholds);
+    // 候选含"不同录音"标记而查询没有 → 判为不同版本（现场/外语/伴奏等），
+    // 标题分封顶 20，防止 album/duration 把变体反超到正确录音之上。
+    if (s > 20 && hasVariantMarkerMismatch(a, b)) return 20;
+    return s;
 }
 
 int Matcher::scoreArtist(const std::string& a, const std::string& b) const {

@@ -209,6 +209,44 @@ TEST(Matcher, TitleJaccard75) {
     EXPECT_EQ(s, 61);
 }
 
+// --- 变体标记惩罚：不同录音/不同歌词的候选不应靠子串拿高分 ---
+
+TEST(Matcher, ForeignLanguageVariantPenalized) {
+    MatchWeights w; w.title = 1.0f; w.artist = 0.0f; w.album = 0.0f; w.duration = 0.0f;
+    Matcher m(w);
+    TrackMeta track; track.title = "I Just Can't Stop Loving You";
+    SearchResult sr;
+    sr.trackName = "I Just Can't Stop Loving You(Todo mi amor eres tu)(Spanish version)";
+    // 西班牙语版歌词完全不同，标题分应被压低（曾走子串分支得 90）
+    EXPECT_LE(m.score(track, sr), 20);
+}
+
+TEST(Matcher, LiveVariantPenalized) {
+    MatchWeights w; w.title = 1.0f; w.artist = 0.0f; w.album = 0.0f; w.duration = 0.0f;
+    Matcher m(w);
+    TrackMeta track; track.title = "I Just Can't Stop Loving You";
+    SearchResult sr; sr.trackName = "I Just Can't Stop Loving You (Live)";
+    EXPECT_LE(m.score(track, sr), 20);
+}
+
+TEST(Matcher, RemasterVariantNotPenalized) {
+    MatchWeights w; w.title = 1.0f; w.artist = 0.0f; w.album = 0.0f; w.duration = 0.0f;
+    Matcher m(w);
+    TrackMeta track; track.title = "Billie Jean";
+    SearchResult sr; sr.trackName = "Billie Jean (2012 Remaster)";
+    // remaster 歌词相同，仍应走子串高分
+    EXPECT_EQ(m.score(track, sr), 90);
+}
+
+TEST(Matcher, VariantMarkerInQueryNotPenalized) {
+    // 用户文件本身就是现场版 → 候选现场版属精确匹配，不应被罚
+    MatchWeights w; w.title = 1.0f; w.artist = 0.0f; w.album = 0.0f; w.duration = 0.0f;
+    Matcher m(w);
+    TrackMeta track; track.title = "Hotel California (Live)";
+    SearchResult sr; sr.trackName = "Hotel California (Live)";
+    EXPECT_EQ(m.score(track, sr), 100);
+}
+
 // --- CJK bigram 相似度 ---
 
 TEST(JaccardSimilarity, CjkIdentical) {
