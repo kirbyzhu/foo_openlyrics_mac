@@ -1028,6 +1028,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     _contentView.onQuitDesktopLyrics = ^{
         __typeof__(self) strongSelf = weakSelf;
         if (strongSelf == nil) return;
+        if (strongSelf->_cancelToken) strongSelf->_cancelToken->cancel();
         strongSelf->_config.deskLyrics.enabled = false;
         openlyrics::ConfigAdapter().save(strongSelf->_config);
         [strongSelf updateVisibility];
