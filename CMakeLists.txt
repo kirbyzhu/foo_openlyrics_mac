@@ -4,6 +4,12 @@ project(foo_openlyrics_core LANGUAGES CXX C OBJC OBJCXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# 未显式指定构建类型时默认 Release，避免空类型退化为无优化、无 NDEBUG
+# （pfc 会报 "release build without NDEBUG"），导致组件二进制体积膨胀、断言全开。
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "构建类型" FORCE)
+endif()
+
 include(FetchContent)
 FetchContent_Declare(
   googletest
