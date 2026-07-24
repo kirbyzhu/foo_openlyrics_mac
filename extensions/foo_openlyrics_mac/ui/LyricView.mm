@@ -29,6 +29,7 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
     NSArray<NSAttributedString *> *_normalAttrLines;
     NSArray<NSAttributedString *> *_highlightAttrLines;
     NSAttributedString *_placeholderAttr;
+    NSString *_placeholderText;
     NSString *_titleText;
     NSAttributedString *_titleAttr;
 
@@ -102,6 +103,14 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
     if (std::fabs(_targetScrollOffset - _scrollOffset) > self.bounds.size.height) {
         _scrollOffset = _targetScrollOffset;
     }
+    self.needsDisplay = YES;
+}
+
+- (void)setPlaceholderText:(NSString *)text {
+    NSString *pText = (text.length > 0) ? text : kPlaceholderNoLyrics;
+    if ([_placeholderText isEqualToString:pText]) return;
+    _placeholderText = [pText copy];
+    [self rebuildCachedLines];
     self.needsDisplay = YES;
 }
 
@@ -227,7 +236,8 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
 
     NSColor *placeholderColor = colorFromHex(_displayCfg.normalColor,
         [NSColor colorWithCalibratedWhite:0.45 alpha:1.0]);
-    _placeholderAttr = [[NSAttributedString alloc] initWithString:kPlaceholderNoLyrics attributes:@{
+    NSString *pText = _placeholderText ?: kPlaceholderNoLyrics;
+    _placeholderAttr = [[NSAttributedString alloc] initWithString:pText attributes:@{
         NSFontAttributeName : [self normalFont],
         NSForegroundColorAttributeName : placeholderColor,
     }];

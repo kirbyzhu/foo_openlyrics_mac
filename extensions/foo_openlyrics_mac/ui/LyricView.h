@@ -32,6 +32,9 @@
 // 0 = 显示全部行；>0 时仅渲染当前行附近 maxLines 行（仅 synced 模式生效）。默认 0。
 @property(nonatomic, assign) NSInteger maxLines;
 
+// 动态设置无歌词或停止播放时的占位文案（默认 "无歌词"）。
+- (void)setPlaceholderText:(NSString *)text;
+
 // 窗口宽度变化后调用，强制重新计算各行文本换行高度。由 controller 在 resize 回调中调用。
 - (void)invalidateRowHeights;
 

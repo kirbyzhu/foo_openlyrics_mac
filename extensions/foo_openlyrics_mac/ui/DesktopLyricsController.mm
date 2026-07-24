@@ -9,6 +9,7 @@
 #import "HttpAdapter.h"
 #import "CryptoAdapter.h"
 #import "ConfigAdapter.h"
+#import "PreferencesViewController.h"
 
 #include "sources/TagSource.h"
 #include "sources/LocalFileSource.h"
@@ -58,6 +59,9 @@ typedef NS_ENUM(NSInteger, DeskMenuTag) {
     DeskMenuTagStop,
     DeskMenuTagPrevious,
     DeskMenuTagNext,
+    DeskMenuTagPreferences,
+    DeskMenuTagQuitDesktopLyrics,
+    DeskMenuTagQuitFoobar,
 };
 
 static NSString *titleForMaxLinesTag(DeskMenuTag tag) {
@@ -134,6 +138,9 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 @property(nonatomic, copy) void (^onStop)(void);
 @property(nonatomic, copy) void (^onPrevious)(void);
 @property(nonatomic, copy) void (^onNext)(void);
+@property(nonatomic, copy) void (^onOpenPreferences)(void);
+@property(nonatomic, copy) void (^onQuitDesktopLyrics)(void);
+@property(nonatomic, copy) void (^onQuitFoobar)(void);
 
 // 当前显示行数，右键菜单打勾用
 @property(nonatomic, assign) NSInteger currentMaxLines;
@@ -659,6 +666,31 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     offsetItem.submenu = offsetSub;
     [menu addItem:offsetItem];
 
+    [menu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *prefItem = [[NSMenuItem alloc] initWithTitle:@"设置..."
+                                                       action:@selector(handleMenuItem:)
+                                                keyEquivalent:@""];
+    prefItem.tag = DeskMenuTagPreferences;
+    prefItem.target = self;
+    [menu addItem:prefItem];
+
+    [menu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *quitDeskItem = [[NSMenuItem alloc] initWithTitle:@"退出桌面歌词"
+                                                          action:@selector(handleMenuItem:)
+                                                   keyEquivalent:@""];
+    quitDeskItem.tag = DeskMenuTagQuitDesktopLyrics;
+    quitDeskItem.target = self;
+    [menu addItem:quitDeskItem];
+
+    NSMenuItem *quitFoobarItem = [[NSMenuItem alloc] initWithTitle:@"退出 foobar"
+                                                            action:@selector(handleMenuItem:)
+                                                     keyEquivalent:@""];
+    quitFoobarItem.tag = DeskMenuTagQuitFoobar;
+    quitFoobarItem.target = self;
+    [menu addItem:quitFoobarItem];
+
     NSPoint loc = [self convertPoint:[event locationInWindow] fromView:nil];
     [menu popUpMenuPositioningItem:nil atLocation:loc inView:self];
 }
@@ -711,6 +743,15 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
             break;
         case DeskMenuTagNext:
             if (_onNext) _onNext();
+            break;
+        case DeskMenuTagPreferences:
+            if (_onOpenPreferences) _onOpenPreferences();
+            break;
+        case DeskMenuTagQuitDesktopLyrics:
+            if (_onQuitDesktopLyrics) _onQuitDesktopLyrics();
+            break;
+        case DeskMenuTagQuitFoobar:
+            if (_onQuitFoobar) _onQuitFoobar();
             break;
     }
 }
@@ -977,6 +1018,25 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         if (!pc.is_empty()) pc->start(playback_control::track_command_next);
     };
 
+    _contentView.onOpenPreferences = ^{
+        auto uic = ui_control::get();
+        if (!uic.is_empty()) {
+            uic->show_preferences(g_guid_openlyrics_preferences);
+        }
+    };
+
+    _contentView.onQuitDesktopLyrics = ^{
+        __typeof__(self) strongSelf = weakSelf;
+        if (strongSelf == nil) return;
+        strongSelf->_config.deskLyrics.enabled = false;
+        openlyrics::ConfigAdapter().save(strongSelf->_config);
+        [strongSelf updateVisibility];
+    };
+
+    _contentView.onQuitFoobar = ^{
+        [NSApp terminate:nil];
+    };
+
     // 内缩 kContentInset，让歌词文字避开圆角与描边，四周留出均匀留白。
     _lyricView = [[LyricView alloc] initWithFrame:NSInsetRect(_contentView.bounds, kContentInset, kContentInset)];
     _lyricView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -1199,11 +1259,20 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     if (![hub hasTrack]) {
         _currentLyricData = openlyrics::LyricData{};
         _currentExtraOffsetMs = 0;
+        [_lyricView setPlaceholderText:@"停止播放"];
         [_lyricView setLyricData:_currentLyricData];
+        if (_panel != nil) {
+            _panel.alphaValue = 0.25;
+        }
         [self updateTitle];
         [self updateVisibility];
         return;
     }
+
+    if (_panel != nil) {
+        _panel.alphaValue = 1.0;
+    }
+    [_lyricView setPlaceholderText:@"无歌词"];
 
     [self updateVisibility];
     [self updateTitle];

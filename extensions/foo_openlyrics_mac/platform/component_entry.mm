@@ -43,9 +43,7 @@ class openlyrics_preferences_page : public preferences_mac_common<PreferencesVie
 public:
     const char *get_name() override { return "OpenLyrics"; }
     GUID get_guid() override {
-        // 8F3A2C1B-4D5E-6F70-8192-A3B4C5D6E7F8
-        return GUID{ 0x8f3a2c1b, 0x4d5e, 0x6f70,
-                     { 0x81, 0x92, 0xa3, 0xb4, 0xc5, 0xd6, 0xe7, 0xf8 } };
+        return g_guid_openlyrics_preferences;
     }
     GUID get_parent_guid() override {
         return preferences_page::guid_display;
