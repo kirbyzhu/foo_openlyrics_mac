@@ -4,6 +4,19 @@
 
 namespace openlyrics {
 
+namespace {
+// 源质量偏好：同分或接近时优先歌词更干净的源。LrcLib/QQ 的同步歌词
+// 通常比 NetEase 干净（NetEase 常混入开场对白、yrc 元数据行）。
+// 加成仅用于排序，不改 r.score，故不影响置信阈值判定。
+int sourceRankBonus(SourceId s) {
+    switch (s) {
+        case SourceId::LrcLib:  return 6;
+        case SourceId::QQMusic: return 5;
+        default:                return 0;  // NetEase 及其他不加成
+    }
+}
+}  // namespace
+
 SearchCoordinator::SearchCoordinator(SearchPipeline* localPipeline,
                                      std::vector<LyricSource*> onlineSources,
                                      Matcher& matcher)
@@ -33,6 +46,9 @@ std::vector<SearchResult> SearchCoordinator::collectAndScore(const TrackMeta& tr
     }
     std::sort(pool.begin(), pool.end(),
               [](const SearchResult& a, const SearchResult& b) {
+                  int aa = a.score + sourceRankBonus(a.source);
+                  int bb = b.score + sourceRankBonus(b.source);
+                  if (aa != bb) return aa > bb;
                   return a.score > b.score;
               });
     return pool;

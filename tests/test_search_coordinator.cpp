@@ -321,3 +321,47 @@ TEST(SearchCoordinator, FailingSourceDoesNotAffectOthers) {
     // 应该通过 good 源成功
     EXPECT_TRUE(coordinator.resolve(track, out));
 }
+
+// 源质量偏好：NetEase 高 4 分，但 LrcLib 在接近范围内应靠源加成反超（auto 选干净源）
+TEST(SearchCoordinator, PrefersLrcLibWithinMargin) {
+    FakeOnlineSource netease(SourceId::NetEase);
+    netease.searchResults = { makeCandidate("ne1", "Song", "Artist", 200) };  // 精确 title
+    netease.lyricData.lines = {{0, "NETEASE_LYRIC", {}}};
+
+    FakeOnlineSource lrclib(SourceId::LrcLib);
+    lrclib.searchResults = { makeCandidate("lr1", "Song Extra", "Artist", 200) };  // 子串 title，低 4 分
+    lrclib.lyricData.lines = {{0, "LRCLIB_LYRIC", {}}};
+
+    Matcher matcher;
+    SearchCoordinator coordinator({&netease, &lrclib}, matcher);
+
+    TrackMeta track;
+    track.title = "Song"; track.artist = "Artist"; track.lengthMs = 200000;
+
+    LyricData out;
+    ASSERT_TRUE(coordinator.resolve(track, out));
+    ASSERT_FALSE(out.lines.empty());
+    EXPECT_EQ(out.lines[0].text, "LRCLIB_LYRIC");
+}
+
+// 源质量偏好：分数并列时优先 LrcLib（不依赖插入顺序）
+TEST(SearchCoordinator, PrefersLrcLibOnTie) {
+    FakeOnlineSource netease(SourceId::NetEase);
+    netease.searchResults = { makeCandidate("ne1", "Song", "Artist", 200) };
+    netease.lyricData.lines = {{0, "NETEASE_LYRIC", {}}};
+
+    FakeOnlineSource lrclib(SourceId::LrcLib);
+    lrclib.searchResults = { makeCandidate("lr1", "Song", "Artist", 200) };
+    lrclib.lyricData.lines = {{0, "LRCLIB_LYRIC", {}}};
+
+    Matcher matcher;
+    SearchCoordinator coordinator({&netease, &lrclib}, matcher);
+
+    TrackMeta track;
+    track.title = "Song"; track.artist = "Artist"; track.lengthMs = 200000;
+
+    LyricData out;
+    ASSERT_TRUE(coordinator.resolve(track, out));
+    ASSERT_FALSE(out.lines.empty());
+    EXPECT_EQ(out.lines[0].text, "LRCLIB_LYRIC");
+}
