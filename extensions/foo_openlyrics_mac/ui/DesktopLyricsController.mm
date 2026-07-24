@@ -36,7 +36,9 @@ static const NSTimeInterval kSaveDebounce = 0.3;
 static const CGFloat kCornerRadius = 14.0;      // 面板圆角半径，贴近 macOS 小部件风格
 static const CGFloat kContentInset = 6.0;       // 歌词视图相对面板的内边距，避开圆角
 static const NSTimeInterval kHoverShowDelay = 1.0;  // 悬停多久后才显现背景，避免鼠标掠过误触发
-static const CGFloat kScrollPixelsPerLine = 40.0;    // 触控板精确滚动每累积此像素步进一行
+static const int64_t kScrollMsPerWheelTick = 100;    // 滚轮每刻度偏移量（毫秒）
+static const NSTimeInterval kScrollCommitDelay = 0.8; // 滚轮停止后多久自动提交偏移
+static const int64_t kArrowOffsetStepMs = 100;       // 方向键每次调整的偏移量（毫秒）
 
 typedef NS_ENUM(NSInteger, DeskMenuTag) {
     DeskMenuTagReSearchLrcLib = 1,
@@ -117,7 +119,6 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 @interface DeskLyricsContent : NSView
 @property(nonatomic, copy) void (^onOffsetDelta)(int64_t deltaMs);
 @property(nonatomic, copy) void (^onOffsetCommit)(int64_t totalDeltaMs);
-@property(nonatomic, copy) void (^onSeekLineSteps)(int steps);
 @property(nonatomic, copy) void (^onMoveTo)(NSPoint origin);
 @property(nonatomic, copy) void (^onResizeFrame)(NSRect frame);
 @property(nonatomic, copy) void (^onResizeCommit)(void);
@@ -140,6 +141,9 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 
 // 在面板中央弹出一条瞬时提示（复用 HUD），短暂显示后自动淡出。
 - (void)showMessage:(NSString *)text;
+
+// 当前滚轮累积的偏移量（毫秒），供外部在提交后清零。
+@property(nonatomic, assign) int64_t scrollAccumMs;
 @end
 
 @implementation DeskLyricsContent {
@@ -167,7 +171,8 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     BOOL _interacting;              // 拖拽/缩放/偏移微调进行中
     BOOL _bgShown;                  // 背景当前是否可见，去抖动画
 
-    CGFloat _scrollLineAccumPx;     // 触控板精确滚动的像素累积，达阈值步进一行
+    int64_t _scrollAccumMs;         // 滚轮累积偏移量
+    NSTimer *_scrollCommitTimer;    // 滚轮停止后延迟提交
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -504,25 +509,45 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     CGFloat dy = event.deltaY;
     if (fabs(dy) < 0.01) return;
 
-    int steps = 0;
+    int64_t deltaMs;
     if (event.hasPreciseScrollingDeltas) {
-        // 触控板：按像素累积，达到阈值步进一行；上滑(dy>0)->上一句
-        _scrollLineAccumPx += dy;
-        while (_scrollLineAccumPx >= kScrollPixelsPerLine) {
-            _scrollLineAccumPx -= kScrollPixelsPerLine;
-            steps -= 1;
-        }
-        while (_scrollLineAccumPx <= -kScrollPixelsPerLine) {
-            _scrollLineAccumPx += kScrollPixelsPerLine;
-            steps += 1;
-        }
+        // 触控板：每像素 ≈ 10ms；上滑(dy>0)->歌词延后(deltaMs<0)
+        deltaMs = static_cast<int64_t>(-dy * 10.0);
     } else {
-        // 传统滚轮：每格一行，上滚(dy>0)->上一句
-        steps = (dy > 0) ? -1 : 1;
+        // 传统鼠标滚轮：每刻度 kScrollMsPerWheelTick；上滚(dy>0)->歌词延后
+        deltaMs = static_cast<int64_t>(-dy * kScrollMsPerWheelTick);
     }
 
-    if (steps != 0 && self.onSeekLineSteps) self.onSeekLineSteps(steps);
+    [self applyOffsetDelta:deltaMs];
 }
+
+// 累积一次偏移增量：实时 HUD + 实时同步 + 重置 0.8s 延迟提交计时器。滚轮与方向键共用。
+- (void)applyOffsetDelta:(int64_t)deltaMs {
+    if (deltaMs == 0) return;
+
+    _scrollAccumMs += deltaMs;
+
+    // 实时 HUD 反馈，复用 Option+拖拽的显示逻辑
+    [self showOffsetHudWithDelta:_scrollAccumMs];
+
+    // 实时同步到歌词视图
+    if (self.onOffsetDelta) self.onOffsetDelta(_scrollAccumMs);
+
+    // 重置延迟提交计时器
+    [_scrollCommitTimer invalidate];
+    _scrollCommitTimer = [NSTimer scheduledTimerWithTimeInterval:kScrollCommitDelay
+                                                         repeats:NO
+                                                           block:^(NSTimer *timer) {
+        if (self.onOffsetCommit && self->_scrollAccumMs != 0) {
+            self.onOffsetCommit(self->_scrollAccumMs);
+        }
+        self->_scrollAccumMs = 0;
+        [self fadeHud];
+    }];
+}
+
+- (int64_t)scrollAccumMs { return _scrollAccumMs; }
+- (void)setScrollAccumMs:(int64_t)v { _scrollAccumMs = v; }
 
 - (BOOL)acceptsFirstResponder { return YES; }
 
@@ -531,11 +556,11 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     if (chars.length == 1) {
         unichar c = [chars characterAtIndex:0];
         if (c == NSUpArrowFunctionKey) {
-            if (self.onSeekLineSteps) self.onSeekLineSteps(-1);
+            [self applyOffsetDelta:-kArrowOffsetStepMs];   // 上：歌词延后
             return;
         }
         if (c == NSDownArrowFunctionKey) {
-            if (self.onSeekLineSteps) self.onSeekLineSteps(1);
+            [self applyOffsetDelta:kArrowOffsetStepMs];    // 下：歌词提前
             return;
         }
     }
@@ -901,12 +926,6 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         __typeof__(self) strongSelf = weakSelf;
         if (strongSelf == nil) return;
         [strongSelf commitOffsetDelta:totalDeltaMs];
-    };
-
-    _contentView.onSeekLineSteps = ^(int steps) {
-        __typeof__(self) strongSelf = weakSelf;
-        if (strongSelf == nil) return;
-        [strongSelf seekLyricLineBySteps:steps];
     };
 
     // 右键菜单回调
@@ -1381,20 +1400,6 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         return static_cast<int64_t>(pc->playback_get_position() * 1000.0 + 0.5);
     }
     return [[PlaybackHub sharedHub] positionMs];
-}
-
-// 滚轮/方向键逐行跳播：seek 到目标时标行，主面板由其 0.06s tick 自动跟随。
-- (void)seekLyricLineBySteps:(int)steps {
-    if (steps == 0) return;
-    auto pc = playback_control::get();
-    if (pc.is_empty() || !pc->playback_can_seek()) return;
-
-    int64_t seekMs = openlyrics::SyncEngine::seekTargetForLineStep(
-        _currentLyricData, [self currentPositionMs], steps, _currentExtraOffsetMs);
-    if (seekMs < 0) return;   // 非 synced / 无时标行
-
-    pc->playback_seek(static_cast<double>(seekMs) / 1000.0);
-    [self tickSync];          // 立即刷新桌面自身高亮
 }
 
 #pragma mark - 偏移拖拽提交
