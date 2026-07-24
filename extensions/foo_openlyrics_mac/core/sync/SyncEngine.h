@@ -15,6 +15,10 @@ public:
     // 无时标数据（synced=false）恒返回 {-1, 0}。
     static SyncResult locate(const LyricData& data, int64_t positionMs,
                              int64_t extraOffsetMs = 0);
+
+    // 从 fromLine（data.lines 下标，-1=尚未到首句）沿 dir(+1 前进/-1 后退) 找相邻的有时标行下标。
+    // 跳过 timeMs<0 的行。端点无更多时标行时返回 fromLine（停住）；fromLine==-1 且无可达时标行返回 -1。
+    static int adjacentTimedLine(const LyricData& data, int fromLine, int dir);
 };
 
 }  // namespace openlyrics

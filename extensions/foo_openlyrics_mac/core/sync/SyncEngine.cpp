@@ -40,4 +40,16 @@ SyncResult SyncEngine::locate(const LyricData& data, int64_t positionMs,
     return result;
 }
 
+int SyncEngine::adjacentTimedLine(const LyricData& data, int fromLine, int dir) {
+    const int n = (int)data.lines.size();
+    if (dir > 0) {
+        for (int i = fromLine + 1; i < n; ++i)
+            if (data.lines[i].timeMs >= 0) return i;
+    } else {
+        for (int i = fromLine - 1; i >= 0; --i)
+            if (data.lines[i].timeMs >= 0) return i;
+    }
+    return fromLine >= 0 ? fromLine : -1;   // 端点停住；fromLine==-1 无可达则 -1
+}
+
 }  // namespace openlyrics

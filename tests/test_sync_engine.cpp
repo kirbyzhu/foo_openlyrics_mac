@@ -68,3 +68,52 @@ TEST(SyncEngine, SkipsInterspersedUntimedLines) {
     EXPECT_EQ(r.lineIndex, 0);
     EXPECT_DOUBLE_EQ(r.progress, 0.5);  // 跳过 note 行，仍以 3000 为 next 做插值
 }
+
+TEST(SyncEngine, AdjacentForward) {
+    EXPECT_EQ(SyncEngine::adjacentTimedLine(makeData(), 0, 1), 1);
+}
+
+TEST(SyncEngine, AdjacentBackward) {
+    EXPECT_EQ(SyncEngine::adjacentTimedLine(makeData(), 1, -1), 0);
+}
+
+TEST(SyncEngine, AdjacentForwardStopsAtLast) {
+    EXPECT_EQ(SyncEngine::adjacentTimedLine(makeData(), 2, 1), 2);
+}
+
+TEST(SyncEngine, AdjacentBackwardStopsAtFirst) {
+    EXPECT_EQ(SyncEngine::adjacentTimedLine(makeData(), 0, -1), 0);
+}
+
+TEST(SyncEngine, AdjacentFromBeforeFirstForward) {
+    EXPECT_EQ(SyncEngine::adjacentTimedLine(makeData(), -1, 1), 0);
+}
+
+TEST(SyncEngine, AdjacentFromBeforeFirstBackward) {
+    EXPECT_EQ(SyncEngine::adjacentTimedLine(makeData(), -1, -1), -1);
+}
+
+TEST(SyncEngine, AdjacentSkipsUntimedForward) {
+    LyricData d;
+    d.synced = true;
+    d.lines.push_back({1000, "a", {}});
+    d.lines.push_back({-1, "note", {}});
+    d.lines.push_back({3000, "b", {}});
+    EXPECT_EQ(SyncEngine::adjacentTimedLine(d, 0, 1), 2);   // 跳过 note
+}
+
+TEST(SyncEngine, AdjacentSkipsUntimedBackward) {
+    LyricData d;
+    d.synced = true;
+    d.lines.push_back({1000, "a", {}});
+    d.lines.push_back({-1, "note", {}});
+    d.lines.push_back({3000, "b", {}});
+    EXPECT_EQ(SyncEngine::adjacentTimedLine(d, 2, -1), 0);  // 跳过 note
+}
+
+TEST(SyncEngine, AdjacentNoTimedLines) {
+    LyricData d;
+    d.synced = true;
+    d.lines.push_back({-1, "only note", {}});
+    EXPECT_EQ(SyncEngine::adjacentTimedLine(d, -1, 1), -1);
+}
