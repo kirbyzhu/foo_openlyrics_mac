@@ -137,7 +137,18 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
 // 标题栏高度：有标题时为字号 + 上下留白，无标题为 0（歌词区占满）。
 - (CGFloat)titleHeight {
     if (_titleAttr == nil || _titleAttr.length == 0) return 0.0;
-    return ceil(_displayCfg.fontSize + 10.0);
+    const CGFloat pad = 6.0;
+    const CGFloat vpad = 10.0;   // 标题区上下留白
+    CGFloat availW = self.bounds.size.width - 2 * pad;
+    CGFloat lineH = _titleAttr.size.height;              // 单行高度
+    if (availW <= 0 || lineH <= 0) return ceil(lineH + vpad);
+    // 按可用宽度测量换行后高度，上限 2 行
+    NSRect br = [_titleAttr boundingRectWithSize:NSMakeSize(availW, CGFLOAT_MAX)
+                                         options:NSStringDrawingUsesLineFragmentOrigin];
+    CGFloat h = ceil(br.size.height);
+    CGFloat twoLineH = ceil(lineH * 2.0);
+    if (h > twoLineH) h = twoLineH;
+    return h + vpad;
 }
 
 - (void)rebuildTitleAttr {
@@ -146,7 +157,7 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
         [NSColor colorWithCalibratedWhite:0.85 alpha:1.0]);
     NSMutableParagraphStyle *ps = [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
     ps.alignment = alignmentFromString(_displayCfg.alignment);
-    ps.lineBreakMode = NSLineBreakByTruncatingTail;  // 单行超长省略，标题不换行
+    ps.lineBreakMode = NSLineBreakByCharWrapping;  // 超长按字符换行（中英混排安全），最多 2 行
     _titleAttr = [[NSAttributedString alloc] initWithString:_titleText attributes:@{
         NSFontAttributeName : [self normalFont],
         NSForegroundColorAttributeName : color,
@@ -332,12 +343,16 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
 
 - (void)drawTitleInRect:(NSRect)rect {
     if (_titleAttr == nil || _titleAttr.length == 0) return;
-    const NSSize sz = _titleAttr.size;
     const CGFloat pad = 6.0;
+    const CGFloat vpad = 10.0;
     NSRect textRect = NSMakeRect(rect.origin.x + pad,
-                                 rect.origin.y + (rect.size.height - sz.height) / 2.0,
-                                 rect.size.width - 2 * pad, sz.height);
-    [_titleAttr drawInRect:textRect];  // 段落样式 truncatingTail 处理超长单行
+                                 rect.origin.y + vpad / 2.0,
+                                 rect.size.width - 2 * pad,
+                                 rect.size.height - vpad);
+    // 多行绘制：内容超出 textRect 高度（>2 行）时在最后可见行末尾省略
+    [_titleAttr drawWithRect:textRect
+                     options:NSStringDrawingUsesLineFragmentOrigin |
+                             NSStringDrawingTruncatesLastVisibleLine];
 }
 
 - (void)drawStaticLinesInRect:(NSRect)rect {
