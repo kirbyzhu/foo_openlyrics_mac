@@ -245,6 +245,7 @@ bool hasVariantMarkerMismatch(const std::string& queryTitle,
                               const std::string& candTitle) {
     static const std::set<std::string> kMarkers = {
         "live", "instrumental", "karaoke", "acoustic", "remix", "cover",
+        "spoken", "intro",  // "(With Spoken Intro)" 等含开场对白，歌词多出对白行
         "spanish", "french", "japanese", "korean", "german", "italian",
         "portuguese", "cantonese", "mandarin",
         "现场", "伴奏",

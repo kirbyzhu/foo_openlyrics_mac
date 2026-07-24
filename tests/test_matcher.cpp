@@ -229,6 +229,15 @@ TEST(Matcher, LiveVariantPenalized) {
     EXPECT_LE(m.score(track, sr), 20);
 }
 
+TEST(Matcher, SpokenIntroVariantPenalized) {
+    MatchWeights w; w.title = 1.0f; w.artist = 0.0f; w.album = 0.0f; w.duration = 0.0f;
+    Matcher m(w);
+    TrackMeta track; track.title = "I Just Can't Stop Loving You";
+    SearchResult sr; sr.trackName = "I Just Can't Stop Loving You (With Spoken Intro)";
+    // 带开场对白的版本歌词不同（多出对白行），应被压低
+    EXPECT_LE(m.score(track, sr), 20);
+}
+
 TEST(Matcher, RemasterVariantNotPenalized) {
     MatchWeights w; w.title = 1.0f; w.artist = 0.0f; w.album = 0.0f; w.duration = 0.0f;
     Matcher m(w);
