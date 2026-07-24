@@ -16,7 +16,8 @@ public:
     int postCount = 0;
 
     HttpResponse get(const std::string& url,
-                      const std::vector<std::pair<std::string, std::string>>& = {}) override {
+                      const std::vector<std::pair<std::string, std::string>>& = {},
+                      CancelToken* = nullptr) override {
         getCalled = true;
         lastUrl = url;
         return {};
@@ -24,7 +25,8 @@ public:
 
     HttpResponse post(const std::string& url,
                        const std::string& body,
-                       const std::vector<std::pair<std::string, std::string>>& = {}) override {
+                       const std::vector<std::pair<std::string, std::string>>& = {},
+                       CancelToken* = nullptr) override {
         ++postCount;
         lastUrl = url;
         lastBody = body;

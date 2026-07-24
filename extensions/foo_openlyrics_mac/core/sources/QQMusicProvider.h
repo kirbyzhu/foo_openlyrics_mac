@@ -11,8 +11,10 @@ class QQMusicProvider : public LyricSource {
 public:
     QQMusicProvider(HttpClient& http, CryptoPort& crypto);
 
-    bool search(const TrackMeta& track, std::vector<SearchResult>& out) override;
-    bool fetchById(const std::string& id, LyricData& out) override;
+    bool search(const TrackMeta& track, std::vector<SearchResult>& out,
+                CancelToken* cancel = nullptr) override;
+    bool fetchById(const std::string& id, LyricData& out,
+                   CancelToken* cancel = nullptr) override;
     SourceId sourceId() const override { return SourceId::QQMusic; }
 
 private:

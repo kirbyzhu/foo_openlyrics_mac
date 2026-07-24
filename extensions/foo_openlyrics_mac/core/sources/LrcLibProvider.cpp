@@ -9,7 +9,7 @@ namespace openlyrics {
 
 LrcLibProvider::LrcLibProvider(HttpClient& http) : http_(http) {}
 
-bool LrcLibProvider::fetch(const TrackMeta& track, LyricData& out) {
+bool LrcLibProvider::fetch(const TrackMeta& track, LyricData& out, CancelToken* cancel) {
     if (track.title.empty()) {
         return false;
     }
@@ -24,7 +24,7 @@ bool LrcLibProvider::fetch(const TrackMeta& track, LyricData& out) {
         url += "&duration=" + std::to_string(track.lengthMs / 1000);
     }
 
-    HttpResponse r = http_.get(url, {});
+    HttpResponse r = http_.get(url, {}, cancel);
     if (r.status != 200) {
         return false;
     }
@@ -49,11 +49,11 @@ bool LrcLibProvider::fetch(const TrackMeta& track, LyricData& out) {
     return false;
 }
 
-bool LrcLibProvider::search(const std::string& query, std::vector<SearchResult>& out) {
+bool LrcLibProvider::search(const std::string& query, std::vector<SearchResult>& out, CancelToken* cancel) {
     if (query.empty()) return false;
 
     std::string url = "https://lrclib.net/api/search?q=" + urlEncodeComponent(query);
-    HttpResponse r = http_.get(url, {});
+    HttpResponse r = http_.get(url, {}, cancel);
     if (r.status != 200) return false;
 
     // 手动解析 JSON 数组：逐元素提取 {} 块再取字段。
@@ -93,11 +93,11 @@ bool LrcLibProvider::search(const std::string& query, std::vector<SearchResult>&
     return !out.empty();
 }
 
-bool LrcLibProvider::fetchById(int id, LyricData& out) {
+bool LrcLibProvider::fetchById(int id, LyricData& out, CancelToken* cancel) {
     if (id <= 0) return false;
 
     std::string url = "https://lrclib.net/api/get?id=" + std::to_string(id);
-    HttpResponse r = http_.get(url, {});
+    HttpResponse r = http_.get(url, {}, cancel);
     if (r.status != 200) {
         // ID 端点返回非 200，此系已知现象：LrcLib /api/get?id=N 可能因 ID 失效、
         // 限流或服务端策略返回错误。调用方应回退到命名查询 fetch()。
@@ -124,13 +124,13 @@ bool LrcLibProvider::fetchById(int id, LyricData& out) {
     return false;
 }
 
-bool LrcLibProvider::search(const TrackMeta& track, std::vector<SearchResult>& out) {
+bool LrcLibProvider::search(const TrackMeta& track, std::vector<SearchResult>& out, CancelToken* cancel) {
     if (track.title.empty()) return false;
 
     // 两轮搜索：先 artist+title，未命中或结果少则追加 title-only
     auto collect = [&](const std::string& query) {
         std::vector<SearchResult> raw;
-        if (search(query, raw)) {
+        if (search(query, raw, cancel)) {
             for (auto& r : raw) {
                 r.source = SourceId::LrcLib;
                 out.push_back(std::move(r));
@@ -142,6 +142,8 @@ bool LrcLibProvider::search(const TrackMeta& track, std::vector<SearchResult>& o
                                                   : track.artist + " " + track.title;
     collect(fullQuery);
 
+    if (cancel && cancel->isCancelled()) return !out.empty();
+
     // 若 artist+title 搜索结果 < 3 条，且 artist 非空，追加 title-only 搜索扩大候选池
     if (out.size() < 3 && !track.artist.empty()) {
         // 按 id 去重：已收集的 id 不重复加入
@@ -149,7 +151,7 @@ bool LrcLibProvider::search(const TrackMeta& track, std::vector<SearchResult>& o
         for (const auto& r : out) seen.insert(r.id);
 
         std::vector<SearchResult> titleOnly;
-        if (search(track.title, titleOnly)) {
+        if (search(track.title, titleOnly, cancel)) {
             for (auto& r : titleOnly) {
                 if (seen.count(r.id)) continue;
                 r.source = SourceId::LrcLib;
@@ -161,10 +163,10 @@ bool LrcLibProvider::search(const TrackMeta& track, std::vector<SearchResult>& o
     return !out.empty();
 }
 
-bool LrcLibProvider::fetchById(const std::string& id, LyricData& out) {
+bool LrcLibProvider::fetchById(const std::string& id, LyricData& out, CancelToken* cancel) {
     int intId = 0;
     try { intId = std::stoi(id); } catch (...) { return false; }
-    return fetchById(intId, out);
+    return fetchById(intId, out, cancel);
 }
 
 }  // namespace openlyrics

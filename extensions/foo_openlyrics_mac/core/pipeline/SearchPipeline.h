@@ -1,5 +1,6 @@
 #pragma once
 #include "sources/LyricSource.h"
+#include "ports/CancelToken.h"
 #include <vector>
 
 namespace openlyrics {
@@ -8,7 +9,7 @@ namespace openlyrics {
 class SearchPipeline {
 public:
     explicit SearchPipeline(std::vector<LyricSource*> sources);
-    bool resolve(const TrackMeta& track, LyricData& out);
+    bool resolve(const TrackMeta& track, LyricData& out, CancelToken* cancel = nullptr);
 
 private:
     std::vector<LyricSource*> sources_;

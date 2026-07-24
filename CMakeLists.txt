@@ -136,6 +136,7 @@ add_executable(core_tests
   tests/test_base64.cpp
   tests/test_matcher.cpp
   tests/test_search_coordinator.cpp
+  tests/test_cancel_token.cpp
 )
 target_link_libraries(core_tests PRIVATE openlyrics_core GTest::gtest_main)
 

@@ -10,7 +10,7 @@ namespace openlyrics {
 class LocalFileSource : public LyricSource {
 public:
     explicit LocalFileSource(FileSystem& fs);
-    bool fetch(const TrackMeta& track, LyricData& out) override;
+    bool fetch(const TrackMeta& track, LyricData& out, CancelToken* cancel = nullptr) override;
     SourceId sourceId() const override { return SourceId::Local; }
 
     // 只做匹配、不读内容：命中则把命中歌词文件的完整路径写入 outPath 并返回 true。

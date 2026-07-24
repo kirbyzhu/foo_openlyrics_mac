@@ -13,7 +13,8 @@ namespace {
 class FakeHttp : public HttpClient {
 public:
     HttpResponse get(const std::string& url,
-                     const std::vector<std::pair<std::string, std::string>>& = {}) override {
+                     const std::vector<std::pair<std::string, std::string>>& = {},
+                     CancelToken* = nullptr) override {
         HttpResponse r;
         r.status = 200;
         r.body = "ok:" + url;
@@ -21,7 +22,8 @@ public:
     }
     HttpResponse post(const std::string& url,
                        const std::string&,
-                       const std::vector<std::pair<std::string, std::string>>& = {}) override {
+                       const std::vector<std::pair<std::string, std::string>>& = {},
+                       CancelToken* = nullptr) override {
         HttpResponse r;
         r.status = 200;
         r.body = "post:" + url;

@@ -80,7 +80,8 @@ std::string NetEaseProvider::eapiEncrypt(const std::string& path, const std::str
     return hexEncodeUpper(encrypted);
 }
 
-std::string NetEaseProvider::eapiPost(const std::string& urlPath, const std::string& json) {
+std::string NetEaseProvider::eapiPost(const std::string& urlPath, const std::string& json,
+                                      CancelToken* cancel) {
     std::string params = eapiEncrypt(urlPath, json);
     if (params.empty()) return {};
 
@@ -97,7 +98,7 @@ std::string NetEaseProvider::eapiPost(const std::string& urlPath, const std::str
         {"Content-Type", "application/x-www-form-urlencoded"},
     };
 
-    HttpResponse r = http_.post(fullUrl, body, headers);
+    HttpResponse r = http_.post(fullUrl, body, headers, cancel);
     if (r.status != 200) return {};
     return r.body;
 }
@@ -159,7 +160,8 @@ bool NetEaseProvider::extractSongs(const std::string& json,
     return !out.empty();
 }
 
-bool NetEaseProvider::search(const TrackMeta& track, std::vector<SearchResult>& out) {
+bool NetEaseProvider::search(const TrackMeta& track, std::vector<SearchResult>& out,
+                             CancelToken* cancel) {
     if (track.title.empty()) return false;
 
     auto tryQuery = [&](const std::string& query) {
@@ -167,7 +169,7 @@ bool NetEaseProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
         std::string searchJson =
             "{\"s\":\"" + jsonEscapeString(query) +
             "\",\"type\":1,\"limit\":10,\"offset\":0,\"total\":true}";
-        std::string searchResp = eapiPost(kSearchPath, searchJson);
+        std::string searchResp = eapiPost(kSearchPath, searchJson, cancel);
         if (searchResp.empty()) return false;
 
         int64_t code = 0;
@@ -179,6 +181,8 @@ bool NetEaseProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
     std::string nq = normalizeQuery(track.title);
     std::string fullQuery = track.artist.empty() ? nq : track.artist + " " + nq;
     bool ok = tryQuery(fullQuery);
+
+    if (cancel && cancel->isCancelled()) return ok || !out.empty();
 
     // 若 artist+title 搜索结果 < 3 条且 artist 非空，追加 title-only 搜索
     if (out.size() < 3 && !track.artist.empty()) {
@@ -196,13 +200,13 @@ bool NetEaseProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
     return ok || !out.empty();
 }
 
-bool NetEaseProvider::fetchById(const std::string& id, LyricData& out) {
+bool NetEaseProvider::fetchById(const std::string& id, LyricData& out, CancelToken* cancel) {
     if (id.empty()) return false;
 
     std::string lyricJson =
         "{\"id\":\"" + jsonEscapeString(id) +
         "\",\"lv\":\"-1\",\"tv\":\"-1\",\"rv\":\"-1\",\"yv\":\"-1\"}";
-    std::string lyricResp = eapiPost(kLyricPath, lyricJson);
+    std::string lyricResp = eapiPost(kLyricPath, lyricJson, cancel);
     if (lyricResp.empty()) return false;
 
     int64_t code = 0;

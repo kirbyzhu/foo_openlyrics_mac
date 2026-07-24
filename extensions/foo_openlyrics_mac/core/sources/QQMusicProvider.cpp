@@ -31,7 +31,8 @@ bool extractLyricText(const std::string& resp, std::string& lrcText) {
 QQMusicProvider::QQMusicProvider(HttpClient& http, CryptoPort& crypto)
     : http_(http), crypto_(crypto) {}
 
-bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& out) {
+bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& out,
+                             CancelToken* cancel) {
     if (track.title.empty()) return false;
 
     auto tryQuery = [&](const std::string& query) {
@@ -43,7 +44,7 @@ bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
             {"Referer", "https://y.qq.com"},
         };
 
-        HttpResponse searchResp = http_.get(searchUrl, headers);
+        HttpResponse searchResp = http_.get(searchUrl, headers, cancel);
         if (searchResp.status != 200) return false;
 
         int64_t code = 0;
@@ -55,6 +56,8 @@ bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
     std::string nq = normalizeQuery(track.title);
     std::string fullQuery = track.artist.empty() ? nq : track.artist + " " + nq;
     bool ok = tryQuery(fullQuery);
+
+    if (cancel && cancel->isCancelled()) return ok || !out.empty();
 
     // 若 artist+title 搜索结果 < 3 条且 artist 非空，追加 title-only 搜索
     if (out.size() < 3 && !track.artist.empty()) {
@@ -72,7 +75,7 @@ bool QQMusicProvider::search(const TrackMeta& track, std::vector<SearchResult>& 
     return ok || !out.empty();
 }
 
-bool QQMusicProvider::fetchById(const std::string& id, LyricData& out) {
+bool QQMusicProvider::fetchById(const std::string& id, LyricData& out, CancelToken* cancel) {
     if (id.empty()) return false;
 
     std::string lyricUrl = std::string(kLyricUrl) +
@@ -83,7 +86,7 @@ bool QQMusicProvider::fetchById(const std::string& id, LyricData& out) {
         {"Referer", "https://y.qq.com"},
     };
 
-    HttpResponse lyricResp = http_.get(lyricUrl, headers);
+    HttpResponse lyricResp = http_.get(lyricUrl, headers, cancel);
     if (lyricResp.status != 200) return false;
 
     std::string lrcText;

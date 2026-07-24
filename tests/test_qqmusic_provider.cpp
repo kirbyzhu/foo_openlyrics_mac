@@ -13,14 +13,16 @@ public:
     int getCount = 0;
 
     HttpResponse get(const std::string& url,
-                      const std::vector<std::pair<std::string, std::string>>& = {}) override {
+                      const std::vector<std::pair<std::string, std::string>>& = {},
+                      CancelToken* = nullptr) override {
         ++getCount;
         lastUrl = url;
         if (url.find("/soso/") != std::string::npos) return searchResp;
         return lyricResp;
     }
     HttpResponse post(const std::string&, const std::string&,
-                       const std::vector<std::pair<std::string, std::string>>& = {}) override {
+                       const std::vector<std::pair<std::string, std::string>>& = {},
+                       CancelToken* = nullptr) override {
         return {};
     }
 };

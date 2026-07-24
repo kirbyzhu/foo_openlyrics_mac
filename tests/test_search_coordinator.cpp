@@ -71,7 +71,7 @@ public:
 
     FakeOnlineSource(SourceId id) : sid(id) {}
 
-    bool search(const TrackMeta&, std::vector<SearchResult>& out) override {
+    bool search(const TrackMeta&, std::vector<SearchResult>& out, CancelToken* = nullptr) override {
         if (!searchOk) return false;
         for (auto& r : searchResults) {
             r.source = sid;
@@ -79,7 +79,7 @@ public:
         out = searchResults;
         return !out.empty();
     }
-    bool fetchById(const std::string& id, LyricData& out) override {
+    bool fetchById(const std::string& id, LyricData& out, CancelToken* = nullptr) override {
         auto it = fetchByIdResults.find(id);
         if (it != fetchByIdResults.end()) {
             if (!it->second) return false;

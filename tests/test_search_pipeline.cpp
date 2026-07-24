@@ -12,7 +12,7 @@ public:
     bool shouldHit = false;
     bool called = false;
     LyricData toReturn;
-    bool fetch(const TrackMeta&, LyricData& out) override {
+    bool fetch(const TrackMeta&, LyricData& out, CancelToken* = nullptr) override {
         called = true;
         if (!shouldHit) return false;
         out = toReturn;

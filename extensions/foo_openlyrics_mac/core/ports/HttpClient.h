@@ -1,4 +1,5 @@
 #pragma once
+#include "ports/CancelToken.h"
 #include <string>
 #include <utility>
 #include <vector>
@@ -15,14 +16,16 @@ public:
     virtual ~HttpClient() = default;
     virtual HttpResponse get(
         const std::string& url,
-        const std::vector<std::pair<std::string, std::string>>& headers = {}) = 0;
+        const std::vector<std::pair<std::string, std::string>>& headers = {},
+        CancelToken* cancel = nullptr) = 0;
 
     // POST 请求，body 为 URL-encoded form 串（如 "params=...&encSecKey=..."）。
     // contentType 默认 application/x-www-form-urlencoded。
     virtual HttpResponse post(
         const std::string& url,
         const std::string& body,
-        const std::vector<std::pair<std::string, std::string>>& headers = {}) = 0;
+        const std::vector<std::pair<std::string, std::string>>& headers = {},
+        CancelToken* cancel = nullptr) = 0;
 };
 
 }  // namespace openlyrics

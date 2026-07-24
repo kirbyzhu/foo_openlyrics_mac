@@ -133,11 +133,11 @@ bool LocalFileSource::resolvePath(const TrackMeta& track, std::string& outPath) 
     return true;
 }
 
-bool LocalFileSource::fetch(const TrackMeta& track, LyricData& out) {
-    // 复用 resolvePath 完成匹配，命中后读取并解析；空文件视为未命中，
-    // 与 resolvePath 保持"命中≠内容非空"的边界差异（删除只需路径，故读文件失败不影响定位）。
+bool LocalFileSource::fetch(const TrackMeta& track, LyricData& out, CancelToken* cancel) {
+    if (cancel && cancel->isCancelled()) return false;
     std::string path;
     if (!resolvePath(track, path)) return false;
+    if (cancel && cancel->isCancelled()) return false;
 
     std::string text;
     if (fs_.readFile(path, text) && !text.empty()) {

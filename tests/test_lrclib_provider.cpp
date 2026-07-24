@@ -13,13 +13,15 @@ public:
     bool called = false;
 
     HttpResponse get(const std::string& url,
-                      const std::vector<std::pair<std::string, std::string>>& = {}) override {
+                      const std::vector<std::pair<std::string, std::string>>& = {},
+                      CancelToken* = nullptr) override {
         called = true;
         lastUrl = url;
         return response;
     }
     HttpResponse post(const std::string&, const std::string&,
-                       const std::vector<std::pair<std::string, std::string>>& = {}) override {
+                       const std::vector<std::pair<std::string, std::string>>& = {},
+                       CancelToken* = nullptr) override {
         return {};
     }
 };

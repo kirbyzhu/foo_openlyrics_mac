@@ -31,16 +31,37 @@ bool HasUserAgentHeader(const std::vector<std::pair<std::string, std::string>>& 
     return false;
 }
 
+bool WaitWithCancel(dispatch_semaphore_t sem, NSURLSessionDataTask* task, NSURLSession* session, CancelToken* cancel, int timeoutSec) {
+    uint64_t maxMs = static_cast<uint64_t>(timeoutSec + 1) * 1000;
+    uint64_t elapsedMs = 0;
+    const uint64_t stepMs = 50;
+    while (elapsedMs < maxMs) {
+        if (cancel && cancel->isCancelled()) {
+            [task cancel];
+            [session finishTasksAndInvalidate];
+            return false;
+        }
+        dispatch_time_t tick = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(stepMs * NSEC_PER_MSEC));
+        if (dispatch_semaphore_wait(sem, tick) == 0) {
+            return true;
+        }
+        elapsedMs += stepMs;
+    }
+    [task cancel];
+    [session finishTasksAndInvalidate];
+    return false;
+}
+
 }  // namespace
 
 HttpResponse HttpAdapter::get(const std::string& url,
-                               const std::vector<std::pair<std::string, std::string>>& headers) {
-    // 见文件顶部注释：本方法内部同步阻塞，只允许后台线程调用。
-    // 用 NSCAssert 而非 NSAssert——本方法是纯 C++ 成员函数，不是 Objective-C 方法，
-    // 作用域内没有 NSAssert 宏所需的隐式 self/_cmd。
+                               const std::vector<std::pair<std::string, std::string>>& headers,
+                               CancelToken* cancel) {
     NSCAssert(![NSThread isMainThread], @"HttpAdapter::get 不可在主线程调用（会阻塞 UI）");
 
-    HttpResponse response;  // 默认 status=0, body=""，各失败分支直接落到这个默认值
+    HttpResponse response;
+
+    if (cancel && cancel->isCancelled()) return response;
 
     @autoreleasepool {
         NSURL* nsUrl = [NSURL URLWithString:[NSString stringWithUTF8String:url.c_str()]];
@@ -79,21 +100,15 @@ HttpResponse HttpAdapter::get(const std::string& url,
               }];
         [task resume];
 
-        // 兜底超时：正常情况下 timeoutIntervalForRequest 会先触发 completionHandler 里的
-        // error 分支并 signal；这里的 wait deadline 只是防御 completionHandler 因异常
-        // 状况始终不回调时，后台线程也不会被无限期挂起。超时则主动取消任务、按传输失败返回。
-        dispatch_time_t deadline = dispatch_time(
-            DISPATCH_TIME_NOW, (int64_t)((g_timeoutSec + 1.0) * NSEC_PER_SEC));
-        if (dispatch_semaphore_wait(sem, deadline) != 0) {
-            [task cancel];
-            [session finishTasksAndInvalidate];
-            return response;  // status=0, body=""
+        if (!WaitWithCancel(sem, task, session, cancel, g_timeoutSec)) {
+            return response;
         }
 
-        // session 用完即弃——不 invalidate 会导致底层队列随每次 get() 调用持续累积
-        // （Apple 文档：NSURLSession 必须显式 invalidate 或随进程退出才释放）。此处任务
-        // 已在上面的 wait 里跑完，用 finishTasksAndInvalidate 而非 invalidateAndCancel，
-        // 避免打断刚完成任务的收尾（如 completionHandler 内部清理）。
+        if (cancel && cancel->isCancelled()) {
+            [session finishTasksAndInvalidate];
+            return response;
+        }
+
         [session finishTasksAndInvalidate];
 
         response.status = static_cast<int>(statusCode);
@@ -107,10 +122,13 @@ HttpResponse HttpAdapter::get(const std::string& url,
 
 HttpResponse HttpAdapter::post(const std::string& url,
                                 const std::string& body,
-                                const std::vector<std::pair<std::string, std::string>>& headers) {
+                                const std::vector<std::pair<std::string, std::string>>& headers,
+                                CancelToken* cancel) {
     NSCAssert(![NSThread isMainThread], @"HttpAdapter::post 不可在主线程调用（会阻塞 UI）");
 
     HttpResponse response;
+
+    if (cancel && cancel->isCancelled()) return response;
 
     @autoreleasepool {
         NSURL* nsUrl = [NSURL URLWithString:[NSString stringWithUTF8String:url.c_str()]];
@@ -157,10 +175,11 @@ HttpResponse HttpAdapter::post(const std::string& url,
               }];
         [task resume];
 
-        dispatch_time_t deadline = dispatch_time(
-            DISPATCH_TIME_NOW, (int64_t)((g_timeoutSec + 1.0) * NSEC_PER_SEC));
-        if (dispatch_semaphore_wait(sem, deadline) != 0) {
-            [task cancel];
+        if (!WaitWithCancel(sem, task, session, cancel, g_timeoutSec)) {
+            return response;
+        }
+
+        if (cancel && cancel->isCancelled()) {
             [session finishTasksAndInvalidate];
             return response;
         }

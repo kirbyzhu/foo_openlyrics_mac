@@ -27,6 +27,7 @@
 #include "config/AppConfig.h"
 #include "matching/Matcher.h"
 #include "pipeline/SearchCoordinator.h"
+#include "ports/CancelToken.h"
 
 static NSString *const kPlaceholderText = @"未在播放";
 static const NSTimeInterval kSyncTickInterval = 0.06;
@@ -76,6 +77,7 @@ static const double kOffsetMax = 30.0;
     int _neteaseFailures;
     int _qqmusicFailures;
     openlyrics::AppConfig _config;
+    std::shared_ptr<openlyrics::CancelToken> _cancelToken;
 }
 
 - (void)loadView {
@@ -334,8 +336,14 @@ static const double kOffsetMax = 30.0;
     [_searchPopover close];
     sender.placeholderString = @"搜索中…";
 
+    if (_cancelToken) _cancelToken->cancel();
+    _cancelToken = std::make_shared<openlyrics::CancelToken>();
+    auto cancel = _cancelToken;
+
     __weak __typeof__(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        if (cancel->isCancelled()) return;
+
         // 构建 SearchCoordinator 用于搜索
         openlyrics::HttpAdapter http;
         openlyrics::CryptoAdapter crypto;
@@ -352,7 +360,8 @@ static const double kOffsetMax = 30.0;
         track.artist = query.UTF8String;
 
         openlyrics::SearchCoordinator coordinator(onlineSources, matcher);
-        auto groups = coordinator.searchAll(track);
+        auto groups = coordinator.searchAll(track, cancel.get());
+        if (cancel->isCancelled()) return;
 
         static const int kMinScore = 30;  // 手动搜索最低相关度阈值
 
@@ -385,6 +394,7 @@ static const double kOffsetMax = 30.0;
         dispatch_async(dispatch_get_main_queue(), ^{
             __typeof__(self) strongSelf = weakSelf;
             if (strongSelf == nil) return;
+            if (cancel->isCancelled()) return;
             strongSelf.searchField.placeholderString = @"搜索歌词…";
             strongSelf.searchSections = sections;
             [strongSelf.searchTableView reloadData];
@@ -440,9 +450,15 @@ static const double kOffsetMax = 30.0;
         : [NSString stringWithUTF8String:meta.title.c_str()];
     self.statusLabel.stringValue = [NSString stringWithFormat:@"%@ · 获取歌词中…", title];
 
+    if (_cancelToken) _cancelToken->cancel();
+    _cancelToken = std::make_shared<openlyrics::CancelToken>();
+    auto cancel = _cancelToken;
+
     const NSInteger requestToken = self.trackRequestToken;
     __weak __typeof__(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        if (cancel->isCancelled()) return;
+
         openlyrics::HttpAdapter http;
         openlyrics::CryptoAdapter crypto;
         openlyrics::LyricData data;
@@ -450,8 +466,8 @@ static const double kOffsetMax = 30.0;
 
         if (sid == openlyrics::SourceId::LrcLib) {
             openlyrics::LrcLibProvider provider(http);
-            ok = provider.fetchById(lyricId.UTF8String, data);
-            if (!ok) {
+            ok = provider.fetchById(lyricId.UTF8String, data, cancel.get());
+            if (!ok && !cancel->isCancelled()) {
                 NSString *candTitle = item[@"trackName"];
                 NSString *candArtist = item[@"artistName"];
                 if (candTitle.length > 0) {
@@ -459,21 +475,24 @@ static const double kOffsetMax = 30.0;
                     fm.title = candTitle.UTF8String;
                     fm.artist = candArtist.UTF8String ?: "";
                     fm.lengthMs = [item[@"durationSec"] intValue] * 1000LL;
-                    ok = provider.fetch(fm, data);
+                    ok = provider.fetch(fm, data, cancel.get());
                 }
             }
         } else if (sid == openlyrics::SourceId::NetEase) {
             openlyrics::NetEaseProvider provider(http, crypto);
-            ok = provider.fetchById(lyricId.UTF8String, data);
+            ok = provider.fetchById(lyricId.UTF8String, data, cancel.get());
         } else if (sid == openlyrics::SourceId::QQMusic) {
             openlyrics::QQMusicProvider provider(http, crypto);
-            ok = provider.fetchById(lyricId.UTF8String, data);
+            ok = provider.fetchById(lyricId.UTF8String, data, cancel.get());
         }
+
+        if (cancel->isCancelled()) return;
 
         if (!ok) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 __typeof__(self) strongSelf = weakSelf;
                 if (strongSelf == nil || strongSelf.trackRequestToken != requestToken) return;
+                if (cancel->isCancelled()) return;
                 strongSelf.statusLabel.stringValue =
                     [NSString stringWithFormat:@"%@ · 获取失败", title];
             });
@@ -487,6 +506,7 @@ static const double kOffsetMax = 30.0;
         dispatch_async(dispatch_get_main_queue(), ^{
             __typeof__(self) strongSelf = weakSelf;
             if (strongSelf == nil || strongSelf.trackRequestToken != requestToken) return;
+            if (cancel->isCancelled()) return;
             strongSelf->_currentLyricData = data;
             strongSelf->_currentExtraOffsetMs = 0;
             strongSelf->_currentSourceLabel = "search";
@@ -654,6 +674,7 @@ static const double kOffsetMax = 30.0;
 
 - (void)viewWillDisappear {
     [super viewWillDisappear];
+    if (_cancelToken) _cancelToken->cancel();
     [[PlaybackHub sharedHub] removeObserver:self];
     [self.syncTimer invalidate];
     self.syncTimer = nil;
@@ -661,6 +682,7 @@ static const double kOffsetMax = 30.0;
 }
 
 - (void)dealloc {
+    if (_cancelToken) _cancelToken->cancel();
     [self.syncTimer invalidate];
     [[PlaybackHub sharedHub] removeObserver:self];
 }
@@ -732,6 +754,10 @@ static const double kOffsetMax = 30.0;
 #pragma mark - 曲目切换：动态源管线
 
 - (void)handleTrackChanged {
+    if (_cancelToken) _cancelToken->cancel();
+    _cancelToken = std::make_shared<openlyrics::CancelToken>();
+    auto cancel = _cancelToken;
+
     self.trackRequestToken += 1;
     const NSInteger requestToken = self.trackRequestToken;
 
@@ -762,6 +788,8 @@ static const double kOffsetMax = 30.0;
 
     __weak __typeof__(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        if (cancel->isCancelled()) return;
+
         openlyrics::TagIOAdapter tagAdapter;
         openlyrics::FileSystemAdapter fsAdapter;
         openlyrics::TagSource tagSource(tagAdapter);
@@ -787,7 +815,8 @@ static const double kOffsetMax = 30.0;
         openlyrics::SearchCoordinator coordinator(&localPipeline, onlineSources, matcher);
 
         openlyrics::LyricData resolved;
-        bool found = coordinator.resolve(meta, resolved);
+        bool found = coordinator.resolve(meta, resolved, cancel.get());
+        if (cancel->isCancelled()) return;
         std::string sourceLabel = "none";
 
         if (found) {

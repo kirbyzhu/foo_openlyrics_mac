@@ -26,14 +26,14 @@ public:
     SearchCoordinator(std::vector<LyricSource*> onlineSources, Matcher& matcher);
 
     // 自动模式：本地快速通道 → 在线候选池评分 → 取最优
-    bool resolve(const TrackMeta& track, LyricData& out);
+    bool resolve(const TrackMeta& track, LyricData& out, CancelToken* cancel = nullptr);
 
     // 手动模式：在线候选池评分 → 按源分组返回
-    std::vector<GroupedResults> searchAll(const TrackMeta& track);
+    std::vector<GroupedResults> searchAll(const TrackMeta& track, CancelToken* cancel = nullptr);
 
 private:
-    // 并行调用所有在线源 search()，收集候选池并评分降序
-    std::vector<SearchResult> collectAndScore(const TrackMeta& track);
+    // 调用所有在线源 search()，收集候选池并评分降序
+    std::vector<SearchResult> collectAndScore(const TrackMeta& track, CancelToken* cancel = nullptr);
 
     SearchPipeline* localPipeline_;  // 可为 nullptr
     std::vector<LyricSource*> onlineSources_;

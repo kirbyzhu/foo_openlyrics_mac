@@ -24,6 +24,7 @@
 #include "parser/LrcSerializer.h"
 #include "model/LyricData.h"
 #include "config/AppConfig.h"
+#include "ports/CancelToken.h"
 #include <sstream>
 
 static const NSTimeInterval kSyncTickInterval = 0.06;
@@ -743,6 +744,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     BOOL _appIsActive;
     BOOL _savePending;
     BOOL _suppressSelfLyricReload;   // 抑制本控制器自身发起的歌词变更通知触发的重载，避免与异步保存竞态覆盖内存歌词
+    std::shared_ptr<openlyrics::CancelToken> _cancelToken;
 }
 
 + (instancetype)sharedController {
@@ -793,6 +795,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 
 - (void)stop {
     if (!_started) return;
+    if (_cancelToken) _cancelToken->cancel();
     [self hidePanel];
     [[PlaybackHub sharedHub] removeObserver:self];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -1185,6 +1188,10 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 
 - (void)handleTrackChanged {
     if (!_started || !_config.deskLyrics.enabled) return;
+    if (_cancelToken) _cancelToken->cancel();
+    _cancelToken = std::make_shared<openlyrics::CancelToken>();
+    auto cancel = _cancelToken;
+
     _trackRequestToken += 1;
     const int64_t requestToken = _trackRequestToken;
 
@@ -1211,6 +1218,8 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 
     __weak __typeof__(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        if (cancel->isCancelled()) return;
+
         openlyrics::TagIOAdapter tagAdapter;
         openlyrics::FileSystemAdapter fsAdapter;
         openlyrics::TagSource tagSource(tagAdapter);
@@ -1236,7 +1245,8 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         openlyrics::SearchCoordinator coordinator(&localPipeline, onlineSources, matcher);
 
         openlyrics::LyricData resolved;
-        bool found = coordinator.resolve(meta, resolved);
+        bool found = coordinator.resolve(meta, resolved, cancel.get());
+        if (cancel->isCancelled()) return;
         std::string lyricPath;
         if (found) {
             // 反查匹配源以确定 lyricPath
@@ -1271,6 +1281,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
             __typeof__(self) strongSelf = weakSelf;
             if (strongSelf == nil) return;
             if (strongSelf->_trackRequestToken != requestToken) return;
+            if (cancel->isCancelled()) return;
 
             strongSelf->_lrclibFailures = lrclibFails;
             strongSelf->_neteaseFailures = neteaseFails;
@@ -1293,6 +1304,10 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
     PlaybackHub *hub = [PlaybackHub sharedHub];
     if (![hub hasTrack]) return;
 
+    if (_cancelToken) _cancelToken->cancel();
+    _cancelToken = std::make_shared<openlyrics::CancelToken>();
+    auto cancel = _cancelToken;
+
     _trackRequestToken += 1;
     const int64_t requestToken = _trackRequestToken;
     openlyrics::TrackMeta meta = [hub currentTrack];
@@ -1300,6 +1315,8 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
 
     __weak __typeof__(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        if (cancel->isCancelled()) return;
+
         openlyrics::HttpAdapter http;
         openlyrics::CryptoAdapter crypto;
         openlyrics::LrcLibProvider lrcLib(http);
@@ -1316,8 +1333,9 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
         if (!onlineSources.empty()) {
             openlyrics::Matcher matcher;
             openlyrics::SearchCoordinator coordinator(onlineSources, matcher);
-            found = coordinator.resolve(meta, data);
+            found = coordinator.resolve(meta, data, cancel.get());
         }
+        if (cancel->isCancelled()) return;
 
         std::string savedPath;
         if (found) {
@@ -1333,6 +1351,7 @@ typedef NS_OPTIONS(NSUInteger, DeskEdge) {
             __typeof__(self) strongSelf = weakSelf;
             if (strongSelf == nil) return;
             if (strongSelf->_trackRequestToken != requestToken) return;
+            if (cancel->isCancelled()) return;
             if (found) {
                 strongSelf->_currentLyricData = data;
                 strongSelf->_currentExtraOffsetMs = strongSelf->_config.defaultOffsetMs;
