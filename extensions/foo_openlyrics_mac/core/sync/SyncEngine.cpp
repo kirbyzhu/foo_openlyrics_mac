@@ -1,5 +1,4 @@
 #include "sync/SyncEngine.h"
-#include <vector>
 
 namespace openlyrics {
 
@@ -39,36 +38,6 @@ SyncResult SyncEngine::locate(const LyricData& data, int64_t positionMs,
         }
     }
     return result;
-}
-
-int64_t SyncEngine::seekTargetForLineStep(const LyricData& data, int64_t positionMs,
-                                          int steps, int64_t extraOffsetMs) {
-    if (!data.synced) return -1;
-
-    // 收集有时标行的下标
-    std::vector<int> timed;
-    for (int i = 0; i < (int)data.lines.size(); ++i) {
-        if (data.lines[i].timeMs >= 0) timed.push_back(i);
-    }
-    if (timed.empty()) return -1;
-
-    // 当前行（data.lines 下标；-1 表示尚未到首句）
-    int cur = locate(data, positionMs, extraOffsetMs).lineIndex;
-
-    // 当前行在 timed 中的序号；cur==-1 记为 -1
-    int ordinal = -1;
-    for (int k = 0; k < (int)timed.size(); ++k) {
-        if (timed[k] == cur) { ordinal = k; break; }
-    }
-
-    int targetOrd = ordinal + steps;
-    if (targetOrd < 0) targetOrd = 0;
-    if (targetOrd > (int)timed.size() - 1) targetOrd = (int)timed.size() - 1;
-
-    int64_t targetTimeMs = data.lines[timed[targetOrd]].timeMs;
-    int64_t seekMs = targetTimeMs - data.offsetMs - extraOffsetMs;
-    if (seekMs < 0) seekMs = 0;
-    return seekMs;
 }
 
 }  // namespace openlyrics
