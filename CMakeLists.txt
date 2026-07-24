@@ -104,6 +104,9 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
   target_link_libraries(foo_openlyrics PRIVATE fb2k_sdk openlyrics_core "-framework Security"
     # libcrypto 静态链接——裸 RSA 用于 NetEase weapi
     /opt/homebrew/opt/openssl@3/lib/libcrypto.a)
+  # 移除局部符号，缩减符号表体积（纯符号表操作，不影响代码与初始化段）。
+  # 注：组件体积主体来自静态链接的 libcrypto.a（NetEase RSA），根治需去 OpenSSL 依赖。
+  target_link_options(foo_openlyrics PRIVATE -Wl,-x)
 
   set(FOO_OPENLYRICS_BUNDLE "${CMAKE_CURRENT_BINARY_DIR}/foo_openlyrics.component")
   configure_file(
