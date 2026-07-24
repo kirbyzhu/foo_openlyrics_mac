@@ -163,9 +163,16 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
 }
 
 - (NSFont *)highlightFont {
-    return [NSFont fontWithName:[NSString stringWithUTF8String:_displayCfg.fontName.c_str()]
-                           size:_displayCfg.fontSize * _displayCfg.highlightScale]
-        ?: [NSFont boldSystemFontOfSize:_displayCfg.fontSize * _displayCfg.highlightScale];
+    CGFloat size = _displayCfg.fontSize * _displayCfg.highlightScale;
+    NSFont *named = [NSFont fontWithName:[NSString stringWithUTF8String:_displayCfg.fontName.c_str()]
+                                   size:size];
+    if (named != nil) {
+        // 自定义字体：提升一档字重实现小幅变粗；无更重变体则维持原体
+        NSFont *heavier = [[NSFontManager sharedFontManager] convertWeight:YES ofFont:named];
+        return heavier ?: named;
+    }
+    // 系统字体（fontName="System" 时 fontWithName 返回 nil）：用 medium 轻微变粗，替代原 full bold
+    return [NSFont systemFontOfSize:size weight:NSFontWeightMedium];
 }
 
 - (void)rebuildCachedLines {
