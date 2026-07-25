@@ -74,6 +74,17 @@ std::string makeLyricResp(const std::string& lrcText) {
            R"("},"code":200})";
 }
 
+std::string makeYrcLyricResp(const std::string& yrcText, const std::string& lrcText) {
+    std::string escapedYrc;
+    for (char c : yrcText) {
+        if (c == '"') escapedYrc += "\\\"";
+        else escapedYrc += c;
+    }
+    return R"({"yrc":{"version":1,"lyric":")" + escapedYrc +
+           R"("},"lrc":{"version":5,"lyric":")" + lrcText +
+           R"("},"code":200})";
+}
+
 }  // namespace
 
 // 端到端成功命中。
@@ -97,6 +108,26 @@ TEST(NetEaseProvider, FullHit) {
     ASSERT_TRUE(provider.fetch(track, out));
     EXPECT_EQ(out.lines.size(), 2u);
     EXPECT_FALSE(out.sourceText.empty());
+}
+
+TEST(NetEaseProvider, FetchByIdPrefersYrc) {
+    FakeHttp http;
+    FakeCrypto crypto;
+    crypto.ecbResult = "AABBCCDD";
+    crypto.md5Result = "deadbeef12345678deadbeef12345678";
+
+    http.lyricResp.status = 200;
+    http.lyricResp.body = makeYrcLyricResp(
+        "{\"t\":1000,\"c\":[{\"tx\":\"Hello \",\"li\":1000,\"rc\":500},{\"tx\":\"world\",\"li\":1500,\"rc\":800}]}",
+        "[00:01.00]hello world");
+
+    NetEaseProvider provider(http, crypto);
+    LyricData out;
+
+    ASSERT_TRUE(provider.fetchById("12345", out));
+    EXPECT_TRUE(out.hasSyllables());
+    ASSERT_EQ(out.lines.size(), 1u);
+    EXPECT_EQ(out.lines[0].syllables.size(), 2u);
 }
 
 // title 为空 → 返回 false。

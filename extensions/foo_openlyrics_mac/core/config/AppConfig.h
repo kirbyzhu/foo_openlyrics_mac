@@ -36,6 +36,7 @@ struct DisplayConfig {
     std::string titleColor = "#FFFFFF";  // 桌面歌词标题栏颜色，内嵌面板不使用
     std::string alignment = "center";   // "left"/"center"/"right"
     double lineSpacing = 6.0;
+    bool wordHighlight = true;          // 逐字高亮开关
 };
 
 struct AppConfig {

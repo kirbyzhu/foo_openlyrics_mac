@@ -117,3 +117,67 @@ TEST(SyncEngine, AdjacentNoTimedLines) {
     d.lines.push_back({-1, "only note", {}});
     EXPECT_EQ(SyncEngine::adjacentTimedLine(d, -1, 1), -1);
 }
+
+TEST(SyncEngine, SyllableLocateAtFirstSyllable) {
+    LyricData d;
+    d.synced = true;
+    LyricLine line;
+    line.timeMs = 1000;
+    line.text = "abc";
+    line.syllables = {
+        {1000, 1500, "a"},
+        {1500, 2000, "b"},
+        {2000, 2500, "c"}
+    };
+    d.lines.push_back(line);
+
+    SyncResult r = SyncEngine::locate(d, 1250);
+    EXPECT_EQ(r.lineIndex, 0);
+    EXPECT_EQ(r.syllableIndex, 0);
+    EXPECT_DOUBLE_EQ(r.syllableProgress, 0.5);
+}
+
+TEST(SyncEngine, SyllableLocateAtMiddleSyllable) {
+    LyricData d;
+    d.synced = true;
+    LyricLine line;
+    line.timeMs = 1000;
+    line.text = "abc";
+    line.syllables = {
+        {1000, 1500, "a"},
+        {1500, 2000, "b"},
+        {2000, 2500, "c"}
+    };
+    d.lines.push_back(line);
+
+    SyncResult r = SyncEngine::locate(d, 1750);
+    EXPECT_EQ(r.lineIndex, 0);
+    EXPECT_EQ(r.syllableIndex, 1);
+    EXPECT_DOUBLE_EQ(r.syllableProgress, 0.5);
+}
+
+TEST(SyncEngine, SyllableLocateFallbackEndMsToNextStart) {
+    LyricData d;
+    d.synced = true;
+    LyricLine line;
+    line.timeMs = 1000;
+    line.text = "ab";
+    line.syllables = {
+        {1000, 0, "a"},  // endMs == 0
+        {1500, 0, "b"}
+    };
+    d.lines.push_back(line);
+
+    SyncResult r = SyncEngine::locate(d, 1250);
+    EXPECT_EQ(r.lineIndex, 0);
+    EXPECT_EQ(r.syllableIndex, 0);
+    EXPECT_DOUBLE_EQ(r.syllableProgress, 0.5);  // fallback endMs = next start (1500)
+}
+
+TEST(SyncEngine, NoSyllablesFallbackToLineMode) {
+    LyricData d = makeData();
+    SyncResult r = SyncEngine::locate(d, 2000);
+    EXPECT_EQ(r.lineIndex, 0);
+    EXPECT_EQ(r.syllableIndex, -1);
+}
+

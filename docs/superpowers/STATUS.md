@@ -55,10 +55,13 @@ cmake --build build --target foo_openlyrics && bash Scripts/install-component.sh
 
 **待人工验证：** foobar2000 后台播放时桌面歌词窗口浮现、切回前台自动隐藏、拖拽移动、字号颜色配置即时生效。
 
+### 计划八 逐字高亮（`docs/superpowers/plans/2026-07-25-plan8-word-highlight.md`）
+`Syllable` 结构扩展（`endMs`）、`LrcParser` 增强（行内音节时标 `[mm:ss.xx]` 与网易云 YRC 括号格式 `[start,dur](start,dur,type)` 解析）、`SyncEngine`（`syllableIndex` / `syllableProgress` 定位）、`NetEaseProvider`（优先拉取 `yrc` 逐字数据）、`LyricView`（音节级动态富文本高亮渲染）、`AppConfig`（`wordHighlight` 开关）与偏好设置勾选框。逐字解析健壮性修复（tx 文本含 `}`、括号组前文本不丢弃、行级无时标时首音节补发时标）。277/277 核心测试，全部通过并合入 main，人工验证通过。
+
 ## 四、后续路线图
 
-计划一至七均已完成。后续迭代方向：
-- **计划八（待定）**：逐字高亮（word-level syllables）、翻译/双语歌词并排显示、Mini 模式（单行紧凑面板）。
+计划一至八均已完成。后续迭代方向：
+- **计划八后续拓展（待定）**：翻译/双语歌词并排显示、Mini 模式（单行紧凑面板）。
 - **计划九（待定）**：Spotify/Apple Music 等流媒体源、Last.fm scrobbling 回调、歌词社区贡献上传。
 
 ## 五、遗留 Minor 待办（非阻塞，可顺手清）

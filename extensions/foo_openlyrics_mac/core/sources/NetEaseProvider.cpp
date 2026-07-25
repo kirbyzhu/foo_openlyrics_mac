@@ -215,6 +215,19 @@ bool NetEaseProvider::fetchById(const std::string& id, LyricData& out, CancelTok
     bool noLyric = false;
     if (jsonGetBool(lyricResp, "nolyric", noLyric) && noLyric) return false;
 
+    // 优先尝试 yrc（逐字歌词）
+    std::string yrcObj;
+    if (jsonGetObject(lyricResp, "yrc", yrcObj)) {
+        std::string yrcText;
+        if (jsonGetString(yrcObj, "lyric", yrcText) && !yrcText.empty()) {
+            LyricData yrcData = LrcParser::parse(yrcText);
+            if (yrcData.synced && !yrcData.lines.empty()) {
+                out = std::move(yrcData);
+                return true;
+            }
+        }
+    }
+
     std::string lrcObj;
     if (!jsonGetObject(lyricResp, "lrc", lrcObj)) return false;
 

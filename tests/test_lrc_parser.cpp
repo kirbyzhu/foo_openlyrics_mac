@@ -218,3 +218,85 @@ TEST(LrcParser, NonYrcBraceLineStaysPlain) {
     EXPECT_EQ(d.lines[0].timeMs, -1);
     EXPECT_EQ(d.lines[0].text, "{not yrc}");
 }
+
+TEST(LrcParser, InlineTimestampsPopulateSyllables) {
+    LyricData d = LrcParser::parse(
+        "[00:01.07]突[00:01.58]然[00:01.79]的[00:02.00]自[00:02.16]我");
+    ASSERT_EQ(d.lines.size(), 1u);
+    ASSERT_EQ(d.lines[0].syllables.size(), 5u);
+    EXPECT_EQ(d.lines[0].syllables[0].startMs, 1070);
+    EXPECT_EQ(d.lines[0].syllables[0].endMs, 1580);
+    EXPECT_EQ(d.lines[0].syllables[0].text, "突");
+    EXPECT_EQ(d.lines[0].syllables[4].startMs, 2160);
+    EXPECT_EQ(d.lines[0].syllables[4].endMs, 0);
+    EXPECT_EQ(d.lines[0].syllables[4].text, "我");
+    EXPECT_EQ(d.lines[0].text, "突然的自我");
+    EXPECT_TRUE(d.hasSyllables());
+}
+
+TEST(LrcParser, StandardLrcNoSyllables) {
+    LyricData d = LrcParser::parse("[00:12.34]Hello world");
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_TRUE(d.lines[0].syllables.empty());
+    EXPECT_FALSE(d.hasSyllables());
+}
+
+TEST(LrcParser, YrcLinePopulatesSyllables) {
+    LyricData d = LrcParser::parse(
+        "{\"t\":1000,\"c\":[{\"tx\":\"Hello \",\"li\":1000,\"rc\":500},{\"tx\":\"world\",\"li\":1500,\"rc\":800}]}");
+    ASSERT_EQ(d.lines.size(), 1u);
+    ASSERT_EQ(d.lines[0].syllables.size(), 2u);
+    EXPECT_EQ(d.lines[0].syllables[0].startMs, 1000);
+    EXPECT_EQ(d.lines[0].syllables[0].endMs, 1500);
+    EXPECT_EQ(d.lines[0].syllables[0].text, "Hello ");
+    EXPECT_EQ(d.lines[0].syllables[1].startMs, 1500);
+    EXPECT_EQ(d.lines[0].syllables[1].endMs, 2300);
+    EXPECT_EQ(d.lines[0].syllables[1].text, "world");
+    EXPECT_EQ(d.lines[0].text, "Hello world");
+    EXPECT_TRUE(d.hasSyllables());
+}
+
+TEST(LrcParser, YrcBracketLinePopulatesSyllables) {
+    LyricData d = LrcParser::parse(
+        "[31770,4590](31770,380,0)时(32150,210,0)光(32360,510,0)穿");
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_EQ(d.lines[0].timeMs, 31770);
+    EXPECT_EQ(d.lines[0].text, "时光穿");
+    ASSERT_EQ(d.lines[0].syllables.size(), 3u);
+    EXPECT_EQ(d.lines[0].syllables[0].startMs, 31770);
+    EXPECT_EQ(d.lines[0].syllables[0].endMs, 32150);
+    EXPECT_EQ(d.lines[0].syllables[0].text, "时");
+    EXPECT_EQ(d.lines[0].syllables[1].startMs, 32150);
+    EXPECT_EQ(d.lines[0].syllables[1].endMs, 32360);
+    EXPECT_EQ(d.lines[0].syllables[1].text, "光");
+    EXPECT_EQ(d.lines[0].syllables[2].startMs, 32360);
+    EXPECT_EQ(d.lines[0].syllables[2].endMs, 32870);
+    EXPECT_EQ(d.lines[0].syllables[2].text, "穿");
+    EXPECT_TRUE(d.hasSyllables());
+}
+
+// tx 文本内含字面量 '}' 不应截断音节或错位后续音节。
+TEST(LrcParser, YrcLineTxContainingBrace) {
+    LyricData d = LrcParser::parse(
+        "{\"t\":0,\"c\":[{\"tx\":\"a}b\",\"li\":0,\"rc\":100},{\"tx\":\"c\",\"li\":100,\"rc\":100}]}");
+    ASSERT_EQ(d.lines.size(), 1u);
+    ASSERT_EQ(d.lines[0].syllables.size(), 2u);
+    EXPECT_EQ(d.lines[0].syllables[0].text, "a}b");
+    EXPECT_EQ(d.lines[0].syllables[0].startMs, 0);
+    EXPECT_EQ(d.lines[0].syllables[0].endMs, 100);
+    EXPECT_EQ(d.lines[0].syllables[1].text, "c");
+    EXPECT_EQ(d.lines[0].syllables[1].startMs, 100);
+    EXPECT_EQ(d.lines[0].text, "a}bc");
+}
+
+// 括号逐字行首个括号组之前的文本不应丢弃，并入下一音节。
+TEST(LrcParser, YrcBracketLineKeepsLeadingText) {
+    LyricData d = LrcParser::parse(
+        "[31770,4590]时(32150,210,0)光(32360,510,0)穿");
+    ASSERT_EQ(d.lines.size(), 1u);
+    EXPECT_EQ(d.lines[0].text, "时光穿");
+    ASSERT_EQ(d.lines[0].syllables.size(), 2u);
+    EXPECT_EQ(d.lines[0].syllables[0].text, "时光");
+    EXPECT_EQ(d.lines[0].syllables[1].text, "穿");
+}
+

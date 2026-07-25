@@ -99,14 +99,31 @@ std::string stripInlineTimeTags(const std::string& s) {
     return out;
 }
 
+int64_t extractIntField(const std::string& obj, const std::string& key) {
+    std::string keyStr = "\"" + key + "\":";
+    size_t pos = obj.find(keyStr);
+    if (pos == std::string::npos) return -1;
+    pos += keyStr.size();
+    while (pos < obj.size() && (obj[pos] == ' ' || obj[pos] == '\t')) ++pos;
+    size_t numEnd = pos;
+    if (numEnd < obj.size() && (obj[numEnd] == '+' || obj[numEnd] == '-')) ++numEnd;
+    while (numEnd < obj.size() && std::isdigit((unsigned char)obj[numEnd])) ++numEnd;
+    if (numEnd > pos) {
+        int64_t val = 0;
+        if (toInt64(obj.substr(pos, numEnd - pos), val)) return val;
+    }
+    return -1;
+}
+
 // 网易云 YRC 逐字行 {"t":ms,"c":[{"tx":".."},{"tx":".."}]}：提取行首 t 毫秒与所有 tx
-// 文本拼接。网易云常把作词/作曲等元数据以该格式混入 lrc 字段开头，标准 LRC 解析器不识别
-// 会把整行 JSON 当文本显示。非该结构返回 false（普通花括号文本行不受影响）。
-bool parseYrcLine(const std::string& raw, int64_t& outMs, std::string& outText) {
+// 文本及逐字 syllable。
+bool parseYrcLine(const std::string& raw, int64_t& outMs, std::string& outText,
+                  std::vector<Syllable>& outSyllables) {
     std::string s = trim(raw);
     const std::string prefix = "{\"t\":";
     if (s.compare(0, prefix.size(), prefix) != 0) return false;
-    if (s.find("\"c\":[") == std::string::npos) return false;
+    size_t cPos = s.find("\"c\":[");
+    if (cPos == std::string::npos) return false;
 
     size_t tp = prefix.size();
     int64_t ms = 0;
@@ -118,21 +135,163 @@ bool parseYrcLine(const std::string& raw, int64_t& outMs, std::string& outText) 
     }
     if (!any) return false;
 
-    std::string text;
-    const std::string txKey = "\"tx\":\"";
-    size_t p = 0;
-    while ((p = s.find(txKey, p)) != std::string::npos) {
-        p += txKey.size();
-        while (p < s.size() && s[p] != '"') {
-            if (s[p] == '\\' && p + 1 < s.size()) { text.push_back(s[p + 1]); p += 2; }
-            else { text.push_back(s[p]); ++p; }
+    outMs = ms;
+    outText.clear();
+    outSyllables.clear();
+
+    size_t pos = cPos + 5;
+    while (pos < s.size() && s[pos] != ']') {
+        size_t objStart = s.find('{', pos);
+        if (objStart == std::string::npos) break;
+
+        // 先在原串上按闭引号（含转义）读取 tx 值，再据此向后定位对象结束 '}'，
+        // 避免 tx 文本内出现字面量 '}' 时被误当作对象边界、导致文本截断与音节错位。
+        std::string tx;
+        size_t afterTx = objStart;
+        const std::string txKey = "\"tx\":\"";
+        size_t txPos = s.find(txKey, objStart);
+        size_t naiveBrace = s.find('}', objStart);
+        if (txPos != std::string::npos &&
+            (naiveBrace == std::string::npos || txPos < naiveBrace)) {
+            txPos += txKey.size();
+            while (txPos < s.size() && s[txPos] != '"') {
+                if (s[txPos] == '\\' && txPos + 1 < s.size()) {
+                    tx.push_back(s[txPos + 1]);
+                    txPos += 2;
+                } else {
+                    tx.push_back(s[txPos]);
+                    ++txPos;
+                }
+            }
+            if (txPos < s.size()) ++txPos;  // 跳过闭引号
+            afterTx = txPos;
         }
-        if (p < s.size()) ++p;  // 跳过结束引号
+
+        size_t objEnd = s.find('}', afterTx);
+        if (objEnd == std::string::npos) break;
+
+        std::string itemObj = s.substr(objStart, objEnd - objStart + 1);
+        pos = objEnd + 1;
+
+        int64_t li = extractIntField(itemObj, "li");
+        if (li < 0) li = extractIntField(itemObj, "t");
+        int64_t rc = extractIntField(itemObj, "rc");
+        if (rc < 0) rc = extractIntField(itemObj, "d");
+
+        int64_t sylStart = (li >= 0) ? li : ms;
+        int64_t sylEnd = (rc > 0) ? (sylStart + rc) : 0;
+
+        outSyllables.push_back({sylStart, sylEnd, tx});
+        outText += tx;
     }
 
-    outMs = ms;
-    outText = text;
     return true;
+}
+
+std::vector<Syllable> parseInlineSyllables(int64_t lineStartMs, const std::string& s) {
+    std::vector<Syllable> syllables;
+    size_t pos = 0;
+    int64_t curStartMs = lineStartMs;
+    std::string curText;
+    bool hasInlineTag = false;
+
+    while (pos < s.size()) {
+        if (s[pos] == '[') {
+            size_t close = s.find(']', pos);
+            if (close != std::string::npos) {
+                std::string body = s.substr(pos + 1, close - pos - 1);
+                int64_t tagMs = 0;
+                if (parseTimeTag(body, tagMs)) {
+                    hasInlineTag = true;
+                    if (!curText.empty()) {
+                        syllables.push_back({curStartMs, tagMs, curText});
+                        curText.clear();
+                    }
+                    curStartMs = tagMs;
+                    pos = close + 1;
+                    continue;
+                }
+            }
+            curText.push_back(s[pos]);
+            ++pos;
+        } else {
+            curText.push_back(s[pos]);
+            ++pos;
+        }
+    }
+
+    if (!curText.empty() && hasInlineTag) {
+        syllables.push_back({curStartMs, 0, curText});
+    }
+
+    if (!hasInlineTag) {
+        return {};
+    }
+    return syllables;
+}
+
+// 解析 NetEase YRC / QRC 括号逐字格式行：[startMs,durationMs](sylStartMs,sylDurationMs,type)text...
+bool parseYrcBracketLine(const std::string& raw, LyricLine& outLine) {
+    std::string s = trim(raw);
+    if (s.empty() || s[0] != '[') return false;
+
+    size_t closeBracket = s.find(']');
+    if (closeBracket == std::string::npos) return false;
+
+    std::string header = s.substr(1, closeBracket - 1);
+    size_t comma = header.find(',');
+    if (comma == std::string::npos) return false;
+
+    std::string startStr = header.substr(0, comma);
+    std::string durStr = header.substr(comma + 1);
+
+    int64_t lineStart = 0;
+    int64_t lineDur = 0;
+    if (!toInt64(startStr, lineStart) || !toInt64(durStr, lineDur)) return false;
+
+    outLine.timeMs = lineStart;
+    outLine.text.clear();
+    outLine.syllables.clear();
+
+    size_t pos = closeBracket + 1;
+    std::string pending;  // 尚未归属任何音节的文本（首个括号组之前、或无效括号内容），并入下一音节不丢弃
+    while (pos < s.size()) {
+        if (s[pos] == '(') {
+            size_t closeParen = s.find(')', pos);
+            if (closeParen == std::string::npos) break;
+
+            std::string sylHeader = s.substr(pos + 1, closeParen - pos - 1);
+            std::stringstream ss(sylHeader);
+            std::string sStartStr, sDurStr;
+            std::getline(ss, sStartStr, ',');
+            std::getline(ss, sDurStr, ',');
+
+            int64_t sylStart = 0, sylDur = 0;
+            if (toInt64(sStartStr, sylStart) && toInt64(sDurStr, sylDur)) {
+                size_t textStart = closeParen + 1;
+                size_t textEnd = s.find('(', textStart);
+                if (textEnd == std::string::npos) textEnd = s.size();
+
+                std::string sylText = pending + s.substr(textStart, textEnd - textStart);
+                pending.clear();
+                outLine.syllables.push_back({sylStart, sylStart + sylDur, sylText});
+                outLine.text += sylText;
+
+                pos = textEnd;
+                continue;
+            }
+        }
+        pending.push_back(s[pos]);
+        ++pos;
+    }
+
+    // 尾部残留文本（无后继括号组）并入末音节，避免丢弃
+    if (!pending.empty() && !outLine.syllables.empty()) {
+        outLine.syllables.back().text += pending;
+        outLine.text += pending;
+    }
+
+    return !outLine.syllables.empty();
 }
 
 }  // namespace
@@ -144,14 +303,23 @@ LyricData LrcParser::parse(const std::string& text) {
     while (std::getline(in, raw)) {
         if (!raw.empty() && raw.back() == '\r') raw.pop_back();
 
-        // 网易云 YRC 逐字行：转成带时标的标准行，避免整行 JSON 当文本显示
+        // 网易云 YRC 逐字行 (JSON 格式)：转成带时标的标准行
         int64_t yrcMs = 0;
         std::string yrcText;
-        if (parseYrcLine(raw, yrcMs, yrcText)) {
+        std::vector<Syllable> yrcSyllables;
+        if (parseYrcLine(raw, yrcMs, yrcText, yrcSyllables)) {
             LyricLine line;
             line.timeMs = yrcMs;
             line.text = yrcText;
+            line.syllables = std::move(yrcSyllables);
             data.lines.push_back(line);
+            continue;
+        }
+
+        // 网易云 YRC / QRC 括号逐字行：[startMs,durMs](sylStart,sylDur,type)text...
+        LyricLine bracketLine;
+        if (parseYrcBracketLine(raw, bracketLine)) {
+            data.lines.push_back(std::move(bracketLine));
             continue;
         }
 
@@ -190,11 +358,19 @@ LyricData LrcParser::parse(const std::string& text) {
 
         std::string content = raw.substr(pos);
         if (!times.empty()) {
-            std::string strippedContent = stripInlineTimeTags(content);
             for (int64_t t : times) {
                 LyricLine line;
                 line.timeMs = t;
-                line.text = strippedContent;
+                auto syls = parseInlineSyllables(t, content);
+                if (!syls.empty()) {
+                    line.syllables = std::move(syls);
+                    line.text.clear();
+                    for (const auto& syl : line.syllables) {
+                        line.text += syl.text;
+                    }
+                } else {
+                    line.text = stripInlineTimeTags(content);
+                }
                 data.lines.push_back(line);
             }
         } else if (!consumed || !trim(content).empty()) {

@@ -38,6 +38,7 @@ TEST(AppConfig, RoundTripPreservesDisplay) {
     c.display.highlightColor = "#FF0000";
     c.display.alignment = "left";
     c.display.lineSpacing = 8.0;
+    c.display.wordHighlight = false;
 
     std::string json = c.toJson();
     AppConfig c2 = AppConfig::fromJson(json);
@@ -49,6 +50,7 @@ TEST(AppConfig, RoundTripPreservesDisplay) {
     EXPECT_EQ(c2.display.highlightColor, "#FF0000");
     EXPECT_EQ(c2.display.alignment, "left");
     EXPECT_DOUBLE_EQ(c2.display.lineSpacing, 8.0);
+    EXPECT_FALSE(c2.display.wordHighlight);
 }
 
 TEST(AppConfig, FromEmptyJsonReturnsDefaults) {

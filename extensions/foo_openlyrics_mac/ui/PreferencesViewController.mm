@@ -26,6 +26,7 @@ static const CGFloat kMinPanelHeight = 60.0;
 @property(nonatomic, strong) NSTextField *httpTimeoutField;
 @property(nonatomic, strong) NSTextField *maxFailuresField;
 @property(nonatomic, strong) NSPopUpButton *logLevelPopup;
+@property(nonatomic, strong) NSButton *wordHighlightCheck;
 
 // 桌面歌词
 @property(nonatomic, strong) NSButton *deskEnabledCheck;
@@ -196,6 +197,12 @@ static const CGFloat kMinPanelHeight = 60.0;
     [v addSubview:spLbl];
     self.lineSpacingLabel = spLbl;
 
+    // 逐字高亮
+    NSButton *whCheck = [NSButton checkboxWithTitle:@"启用逐字高亮" target:self action:@selector(wordHighlightChanged:)];
+    whCheck.translatesAutoresizingMaskIntoConstraints = NO;
+    [v addSubview:whCheck];
+    self.wordHighlightCheck = whCheck;
+
     // 预览
     NSTextField *preCap = [NSTextField labelWithString:@"预览："];
     preCap.translatesAutoresizingMaskIntoConstraints = NO;
@@ -209,7 +216,7 @@ static const CGFloat kMinPanelHeight = 60.0;
 
     NSDictionary *views = NSDictionaryOfVariableBindings(fontCap, fontBtn, fontLbl,
         normalCap, normalWell, hlCap, hlWell, alignCap, alignPop,
-        spCap, spSlider, spLbl, preCap, preview);
+        spCap, spSlider, spLbl, whCheck, preCap, preview);
     for (NSView *sv in views.allValues) {
         [sv setContentHuggingPriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationHorizontal];
     }
@@ -223,12 +230,14 @@ static const CGFloat kMinPanelHeight = 60.0;
     [v addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
         @"H:|-[spCap]-[spSlider]-[spLbl(36)]-|" options:0 metrics:nil views:views]];
     [v addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
+        @"H:|-[whCheck]-|" options:0 metrics:nil views:views]];
+    [v addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
         @"H:|-[preCap]-[preview]-|" options:0 metrics:nil views:views]];
 
     [v addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
-        @"V:|-[fontCap]-[normalCap]-[alignCap]-[spCap]-[preCap]" options:NSLayoutFormatAlignAllLeading metrics:nil views:views]];
+        @"V:|-[fontCap]-[normalCap]-[alignCap]-[spCap]-[whCheck]-[preCap]" options:NSLayoutFormatAlignAllLeading metrics:nil views:views]];
     [v addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
-        @"V:[fontBtn]-[normalWell]-[alignPop]-[spSlider]-[preview]" options:NSLayoutFormatAlignAllLeft metrics:nil views:views]];
+        @"V:[fontBtn]-[normalWell]-[alignPop]-[spSlider]-[whCheck]-[preview]" options:NSLayoutFormatAlignAllLeft metrics:nil views:views]];
     [v addConstraint:[fontLbl.centerYAnchor constraintEqualToAnchor:fontBtn.centerYAnchor]];
     [v addConstraint:[hlWell.centerYAnchor constraintEqualToAnchor:normalWell.centerYAnchor]];
     [v addConstraint:[fontBtn.centerYAnchor constraintEqualToAnchor:fontCap.centerYAnchor]];
@@ -519,6 +528,7 @@ static const CGFloat kMinPanelHeight = 60.0;
 
     _lineSpacingSlider.doubleValue = d.lineSpacing;
     _lineSpacingLabel.stringValue = [NSString stringWithFormat:@"%.0f", d.lineSpacing];
+    _wordHighlightCheck.state = d.wordHighlight ? NSControlStateValueOn : NSControlStateValueOff;
 
     _defaultOffsetField.stringValue = [NSString stringWithFormat:@"%lld", c.defaultOffsetMs];
     _httpTimeoutField.stringValue = [NSString stringWithFormat:@"%d", c.httpTimeoutSec];
@@ -668,6 +678,11 @@ static const CGFloat kMinPanelHeight = 60.0;
 - (void)lineSpacingChanged:(NSSlider *)sender {
     _config.display.lineSpacing = sender.doubleValue;
     _lineSpacingLabel.stringValue = [NSString stringWithFormat:@"%.0f", sender.doubleValue];
+    [self saveConfig];
+}
+
+- (void)wordHighlightChanged:(NSButton *)sender {
+    _config.display.wordHighlight = (sender.state == NSControlStateValueOn);
     [self saveConfig];
 }
 

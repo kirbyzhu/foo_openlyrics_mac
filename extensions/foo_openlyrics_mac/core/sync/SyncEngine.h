@@ -7,6 +7,8 @@ namespace openlyrics {
 struct SyncResult {
     int lineIndex = -1;     // -1 表示尚未到达首个时标行
     double progress = 0.0;  // 当前行到下一行的插值进度 [0,1)，末行为 0
+    int syllableIndex = -1;     // 当前行内 syllable 索引；-1 表示整行模式
+    double syllableProgress = 0.0;  // 当前 syllable 的播放进度 [0,1)
 };
 
 class SyncEngine {

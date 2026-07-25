@@ -2,7 +2,7 @@
 
 foobar2000 for Mac 的歌词显示组件，功能参考 Windows 平台的 [foo_openlyrics](https://github.com/jacquesh/foo_openlyrics)，为 macOS 版从零实现。嵌入式 UI 面板 + 桌面歌词双形态，五级取词（内嵌标签 → 本地文件 → LrcLib → 网易云 → QQ 音乐），同步高亮平滑滚动，手动搜索与候选选择，offset 微调，内置歌词编辑器，偏好设置页。在线结果自动落盘缓存，断网优雅降级，失效源自动隔离。
 
-> 计划一至七均已完成并合入 main，98 项核心单元测试全部通过（foobar2000 v2.25，Apple Silicon）。详见 [`docs/superpowers/STATUS.md`](docs/superpowers/STATUS.md)。
+> 计划一至八均已完成并合入 main，277 项核心单元测试全部通过（foobar2000 v2.25，Apple Silicon）。详见 [`docs/superpowers/STATUS.md`](docs/superpowers/STATUS.md)。
 
 ## 功能
 

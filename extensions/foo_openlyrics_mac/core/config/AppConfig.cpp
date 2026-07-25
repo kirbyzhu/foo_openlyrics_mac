@@ -41,7 +41,8 @@ void writeDisplay(std::ostringstream& oss, const DisplayConfig& d) {
         << "\"normalColor\":\"" << esc(d.normalColor) << "\","
         << "\"highlightColor\":\"" << esc(d.highlightColor) << "\","
         << "\"alignment\":\"" << esc(d.alignment) << "\","
-        << "\"lineSpacing\":" << d.lineSpacing
+        << "\"lineSpacing\":" << d.lineSpacing << ','
+        << "\"wordHighlight\":" << (d.wordHighlight ? "true" : "false")
         << '}';
 }
 
@@ -105,6 +106,7 @@ void parseDisplay(const std::string& json, DisplayConfig& out) {
     int64_t lineSpacing = static_cast<int64_t>(out.lineSpacing);
     if (jsonGetInt(dispObj, "lineSpacing", lineSpacing))
         out.lineSpacing = static_cast<double>(lineSpacing);
+    jsonGetBool(dispObj, "wordHighlight", out.wordHighlight);
 }
 
 void writeDeskLyrics(std::ostringstream& oss, const DeskLyricsConfig& d) {

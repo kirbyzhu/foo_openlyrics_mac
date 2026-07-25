@@ -38,6 +38,7 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
     NSMutableArray<NSNumber *> *_rowHeights;
     BOOL _rowHeightsDirty;
     CGFloat _lastWidthForRowHeights;
+    NSArray<NSArray<NSValue *> *> *_syllableCharRanges;
 
     NSTimer *_animTimer;
     BOOL _transparentBackground;
@@ -221,6 +222,8 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
         NSParagraphStyleAttributeName : ps,
     };
 
+    NSMutableArray<NSArray<NSValue *> *> *syllableRanges = [NSMutableArray arrayWithCapacity:count];
+
     for (const auto &line : _data.lines) {
         NSString *text = @"";
         if (!line.text.empty()) {
@@ -229,10 +232,23 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
         }
         [normal addObject:[[NSAttributedString alloc] initWithString:text attributes:normalAttrs]];
         [highlight addObject:[[NSAttributedString alloc] initWithString:text attributes:highlightAttrs]];
+
+        NSMutableArray<NSValue *> *lineRanges = [NSMutableArray array];
+        if (line.syllables.size() > 1) {
+            NSUInteger loc = 0;
+            for (const auto &syl : line.syllables) {
+                NSString *sylText = [NSString stringWithUTF8String:syl.text.c_str()] ?: @"";
+                NSUInteger len = sylText.length;
+                [lineRanges addObject:[NSValue valueWithRange:NSMakeRange(loc, len)]];
+                loc += len;
+            }
+        }
+        [syllableRanges addObject:lineRanges];
     }
 
     _normalAttrLines = normal;
     _highlightAttrLines = highlight;
+    _syllableCharRanges = syllableRanges;
 
     NSColor *placeholderColor = colorFromHex(_displayCfg.normalColor,
         [NSColor colorWithCalibratedWhite:0.45 alpha:1.0]);
@@ -377,6 +393,31 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
     }
 }
 
+- (NSAttributedString *)buildKaraokeAttrStringForLine:(NSInteger)lineIdx {
+    if (lineIdx < 0 || lineIdx >= (NSInteger)_normalAttrLines.count) return nil;
+    NSMutableAttributedString *mas = [_normalAttrLines[lineIdx] mutableCopy];
+
+    if (lineIdx >= (NSInteger)_syllableCharRanges.count) return mas;
+    NSArray<NSValue *> *ranges = _syllableCharRanges[lineIdx];
+    if (ranges.count == 0) return mas;
+
+    NSFont *hlFont = [self highlightFont];
+    NSColor *hlColor = colorFromHex(_displayCfg.highlightColor,
+        [NSColor colorWithCalibratedRed:1.0 green:0.84 blue:0.35 alpha:1.0]);
+
+    NSInteger curSyl = _syncResult.syllableIndex;
+    NSUInteger totalLen = mas.length;
+
+    for (NSInteger s = 0; s <= curSyl && s < (NSInteger)ranges.count; s++) {
+        NSRange r = ranges[s].rangeValue;
+        if (r.location + r.length <= totalLen) {
+            [mas addAttribute:NSForegroundColorAttributeName value:hlColor range:r];
+            [mas addAttribute:NSFontAttributeName value:hlFont range:r];
+        }
+    }
+    return mas;
+}
+
 - (void)drawSyncedLinesInRect:(NSRect)rect {
     [self computeRowHeightsIfNeeded];
     const NSInteger count = static_cast<NSInteger>(_normalAttrLines.count);
@@ -402,7 +443,19 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
         if (i < fromLine || i >= toLine) continue;
         if (rowTop + h < NSMinY(rect) || rowTop > NSMaxY(rect)) continue;
 
-        NSAttributedString *line = (i == _syncResult.lineIndex) ? _highlightAttrLines[i] : _normalAttrLines[i];
+        NSAttributedString *line;
+        if (i == _syncResult.lineIndex) {
+            if (_displayCfg.wordHighlight &&
+                _syncResult.syllableIndex >= 0 &&
+                i < (NSInteger)_syllableCharRanges.count &&
+                _syllableCharRanges[i].count > 0) {
+                line = [self buildKaraokeAttrStringForLine:i];
+            } else {
+                line = _highlightAttrLines[i];
+            }
+        } else {
+            line = _normalAttrLines[i];
+        }
         NSRect rowRect = NSMakeRect(rect.origin.x + 8.0, rowTop, rect.size.width - 16.0, h);
         [self drawAttrString:line inRect:rowRect];
     }

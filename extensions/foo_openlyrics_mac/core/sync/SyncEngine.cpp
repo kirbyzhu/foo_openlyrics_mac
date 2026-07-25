@@ -37,6 +37,32 @@ SyncResult SyncEngine::locate(const LyricData& data, int64_t positionMs,
             result.progress = p;
         }
     }
+
+    // syllable 级定位
+    if (current >= 0) {
+        const auto& syls = data.lines[current].syllables;
+        if (syls.size() > 1) {
+            int sylIdx = -1;
+            for (int s = 0; s < (int)syls.size(); ++s) {
+                if (syls[s].startMs <= eff) sylIdx = s;
+                else break;
+            }
+            if (sylIdx >= 0) {
+                result.syllableIndex = sylIdx;
+                int64_t sylStart = syls[sylIdx].startMs;
+                int64_t sylEnd = syls[sylIdx].endMs;
+                if (sylEnd <= sylStart && sylIdx + 1 < (int)syls.size())
+                    sylEnd = syls[sylIdx + 1].startMs;
+                if (sylEnd > sylStart) {
+                    double sp = double(eff - sylStart) / double(sylEnd - sylStart);
+                    if (sp < 0.0) sp = 0.0;
+                    if (sp >= 1.0) sp = 0.999999;
+                    result.syllableProgress = sp;
+                }
+            }
+        }
+    }
+
     return result;
 }
 
