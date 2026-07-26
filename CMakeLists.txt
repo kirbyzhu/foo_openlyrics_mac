@@ -77,6 +77,8 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/platform/PlaylistSearchBridge.mm
     # Plan 8 Task 4：悬浮搜索框 NSPanel 控制器。
     extensions/foo_openlyrics_mac/ui/PlaylistSearchController.mm
+    # Plan 8 Task 5：快捷键监听（initquit + NSEvent 本地监听）。
+    extensions/foo_openlyrics_mac/platform/PlaylistSearchHotkey.mm
   )
   set_target_properties(foo_openlyrics PROPERTIES
     PREFIX ""
@@ -98,6 +100,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/platform/PinyinBuilder.mm
     extensions/foo_openlyrics_mac/platform/PlaylistSearchBridge.mm
     extensions/foo_openlyrics_mac/ui/PlaylistSearchController.mm
+    extensions/foo_openlyrics_mac/platform/PlaylistSearchHotkey.mm
     PROPERTIES COMPILE_FLAGS "-fobjc-arc"
   )
   target_include_directories(foo_openlyrics PRIVATE
