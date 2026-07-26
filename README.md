@@ -1,8 +1,8 @@
 # foo_openlyrics_mac
 
-foobar2000 for Mac 的歌词显示组件，功能参考 Windows 平台的 [foo_openlyrics](https://github.com/jacquesh/foo_openlyrics)，为 macOS 版从零实现。嵌入式 UI 面板 + 桌面歌词双形态，五级取词（内嵌标签 → 本地文件 → LrcLib → 网易云 → QQ 音乐），同步高亮平滑滚动，手动搜索与候选选择，offset 微调，内置歌词编辑器，偏好设置页。在线结果自动落盘缓存，断网优雅降级，失效源自动隔离。
+foobar2000 for Mac 的歌词显示组件，功能参考 Windows 平台的 [foo_openlyrics](https://github.com/jacquesh/foo_openlyrics)，为 macOS 版从零实现。嵌入式 UI 面板 + 桌面歌词双形态，五级取词（内嵌标签 → 本地文件 → LrcLib → 网易云 → QQ 音乐），同步高亮平滑滚动，手动搜索与候选选择，offset 微调，内置歌词编辑器，偏好设置页，播放列表模糊搜索定位（Cmd+F / 右键，拼音含多音字）。在线结果自动落盘缓存，断网优雅降级，失效源自动隔离。
 
-> 计划一至八均已完成并合入 main，277 项核心单元测试全部通过（foobar2000 v2.25，Apple Silicon）。详见 [`docs/superpowers/STATUS.md`](docs/superpowers/STATUS.md)。
+> 核心功能均已完成并合入 main，288 项核心单元测试全部通过（foobar2000 v2.25，Apple Silicon）。详见 [`docs/superpowers/STATUS.md`](docs/superpowers/STATUS.md)。
 
 ## 功能
 
@@ -23,6 +23,7 @@ foobar2000 for Mac 的歌词显示组件，功能参考 Windows 平台的 [foo_o
 - 嵌入式 `ui_element_mac` 面板（布局 token `openlyrics`）。
 - 整行高亮 + 60ms 插值平滑居中滚动，大幅跳转快速吸附。
 - 增强型逐字 LRC 行内时标自动剥离（兼容网易云 YRC 格式）。
+- 智能换行排版（Word Wrapping）：超长行按单词边界换行，防止英文在单词中间被截断，同时兼容 CJK 文本。
 - 字体、颜色、对齐、行距均可在偏好设置中自定义。
 
 ### 桌面歌词
@@ -30,7 +31,7 @@ foobar2000 for Mac 的歌词显示组件，功能参考 Windows 平台的 [foo_o
 - 浮动透明 NSPanel 窗口，可拖拽定位。
 - 前台自动隐藏 / 后台播放时自动浮现（可配置为常显）。
 - 独立搜索管线与 60ms 同步 tick。
-- 标题过长时自动换行（最多 2 行）。
+- 标题与歌词过长时按单词边界自动换行（标题最多 2 行）。
 - 右键菜单可退出或进入设置。
 - 滚轮/方向键逐句手动打轴同步。
 
@@ -39,6 +40,13 @@ foobar2000 for Mac 的歌词显示组件，功能参考 Windows 平台的 [foo_o
 - 面板内 NSSearchField + NSPopover 候选列表（LrcLib/NetEase/QQ 多源搜索）。
 - NSStepper offset 微调，实时生效并持久化写回 `.lrc`。
 - NSTextView 编辑模式，LrcParser 回解析 + forceSave 覆写保存。
+
+### 播放列表搜索定位
+
+- **Cmd+F** 或歌单右键菜单 `搜索定位歌曲  (⌘F)` 弹出居中悬浮搜索框（NSPanel）。
+- 搜索**当前活动播放列表**，即时过滤标题/艺术家/专辑三字段，大小写不敏感的子序列（模糊）匹配。
+- 中文支持拼音全拼与首字母，含多音字（如"银行"可搜 `yinhang`/`yinxing`/`yh`/`yx`）；拼音经 `CFStringTransform` 生成，多音字由内置词表补全。查询空白自动剥除。
+- ↑↓ 选择结果，回车在播放列表中聚焦+选中+滚动可见（基于 `metadb_handle`，抗重排；不自动播放），Esc 或失焦关闭。
 
 ### 偏好设置
 
@@ -63,20 +71,26 @@ extensions/foo_openlyrics_mac/
 │   ├── parser/     LrcParser / LrcSerializer（含 YRC 逐字行）
 │   ├── pipeline/   SearchPipeline / SearchCoordinator
 │   ├── ports/      HttpClient / FileSystem / TagIO / Clock / CryptoPort / ConfigPort
+│   ├── search/     PlaylistSearchMatcher（多字段子序列+首字母打分）/ PinyinCellBuilder / PinyinPolyphonic（多音字表）
 │   ├── sources/    TagSource / LocalFileSource / LrcLibProvider / NetEaseProvider / QQMusicProvider
 │   ├── store/      LyricStore（落盘 + 查重）
 │   └── sync/       SyncEngine（offset + 穿插无时标行）
 ├── platform/   ← SDK 胶水（Objective-C++）
-│   ├── PlaybackBridge    播放回调 + PlaybackHub broker
-│   ├── TagIOAdapter      metadb 读取
-│   ├── FileSystemAdapter 文件操作
-│   ├── HttpAdapter       NSURLSession 同步 HTTP
-│   ├── CryptoAdapter     CommonCrypto AES/3DES/MD5
-│   └── ConfigAdapter     NSUserDefaults 持久化
+│   ├── PlaybackBridge          播放回调 + PlaybackHub broker
+│   ├── TagIOAdapter            metadb 读取
+│   ├── FileSystemAdapter       文件操作
+│   ├── HttpAdapter             NSURLSession 同步 HTTP
+│   ├── CryptoAdapter           CommonCrypto AES/3DES/MD5
+│   ├── ConfigAdapter           NSUserDefaults 持久化
+│   ├── PinyinBuilder           CFStringTransform 拼音生成 + 多音字组合（ReadingLookup）
+│   ├── PlaylistSearchBridge    活动列表快照 + metadb_handle 定位
+│   ├── PlaylistSearchHotkey    initquit + NSEvent 本地监听（Cmd+F）
+│   └── PlaylistSearchContextMenu  歌单右键菜单入口
 └── ui/         ← AppKit 面板与视图（Objective-C++）
     ├── LyricView                    歌词渲染视图
     ├── LyricPanelController         嵌入式面板控制器
     ├── DesktopLyricsController      桌面歌词浮窗控制器
+    ├── PlaylistSearchController     悬浮搜索框（NSPanel + 结果列表）
     └── PreferencesViewController    偏好设置页
 ```
 

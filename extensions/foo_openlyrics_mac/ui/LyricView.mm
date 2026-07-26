@@ -167,7 +167,7 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
         [NSColor colorWithCalibratedWhite:0.85 alpha:1.0]);
     NSMutableParagraphStyle *ps = [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
     ps.alignment = alignmentFromString(_displayCfg.alignment);
-    ps.lineBreakMode = NSLineBreakByCharWrapping;  // 超长按字符换行（中英混排安全），最多 2 行
+    ps.lineBreakMode = NSLineBreakByWordWrapping;  // 按单词边界换行，CJK 同样安全
     _titleAttr = [[NSAttributedString alloc] initWithString:_titleText attributes:@{
         NSFontAttributeName : [self normalFont],
         NSForegroundColorAttributeName : color,
@@ -209,7 +209,7 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
     NSMutableParagraphStyle *ps = [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
     ps.alignment = alignmentFromString(_displayCfg.alignment);
     ps.lineSpacing = _displayCfg.lineSpacing;
-    ps.lineBreakMode = NSLineBreakByCharWrapping;
+    ps.lineBreakMode = NSLineBreakByWordWrapping;
 
     NSDictionary *normalAttrs = @{
         NSFontAttributeName : [self normalFont],
