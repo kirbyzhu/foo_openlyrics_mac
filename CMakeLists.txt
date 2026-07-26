@@ -72,6 +72,9 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/ui/PreferencesViewController.mm
     # Plan 7 Task 2：桌面歌词浮动透明窗口控制器。
     extensions/foo_openlyrics_mac/ui/DesktopLyricsController.mm
+    # Plan 8 Task 3：播放列表拼音生成（CFStringTransform 兜底）+ 快照/定位桥。
+    extensions/foo_openlyrics_mac/platform/PinyinBuilder.mm
+    extensions/foo_openlyrics_mac/platform/PlaylistSearchBridge.mm
   )
   set_target_properties(foo_openlyrics PROPERTIES
     PREFIX ""
@@ -90,6 +93,8 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/platform/ConfigAdapter.mm
     extensions/foo_openlyrics_mac/ui/PreferencesViewController.mm
     extensions/foo_openlyrics_mac/ui/DesktopLyricsController.mm
+    extensions/foo_openlyrics_mac/platform/PinyinBuilder.mm
+    extensions/foo_openlyrics_mac/platform/PlaylistSearchBridge.mm
     PROPERTIES COMPILE_FLAGS "-fobjc-arc"
   )
   target_include_directories(foo_openlyrics PRIVATE

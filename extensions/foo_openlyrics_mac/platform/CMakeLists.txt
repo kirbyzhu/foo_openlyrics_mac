@@ -9,6 +9,15 @@ set(FB2K_SDK_ROOT ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
 file(GLOB FB2K_PFC_CPP CONFIGURE_DEPENDS ${FB2K_SDK_ROOT}/pfc/*.cpp)
 file(GLOB FB2K_PFC_OBJC CONFIGURE_DEPENDS ${FB2K_SDK_ROOT}/pfc/*.mm ${FB2K_SDK_ROOT}/pfc/*.m)
 
+# 排除 pfc-fb2k-hooks.cpp：该文件包含 suppress_fb2k_hooks.h，提供 pfc::crashHook() 的桩实现，
+# 供"不链接完整 fb2k SDK"的独立 PFC 构建使用。该文件自身注释写明：链接到真正 FB2K 环境（即本项目，
+# 依赖 foobar2000/SDK/utility.cpp 提供 pfc::crashHook() 真实实现转发到 uBugCheck()）的构建配置应
+# 禁用此文件编译，否则两处 pfc::crashHook() 定义同时进入静态库、被链接器同时拉入时即报
+# duplicate symbol。此前没有代码引用 playlist_manager（会经 playlist.cpp.o 拉入
+# utility.cpp.o 里的 pfc::bit_array_table_t<bool>::get），故未曾触发；Plan 8 Task 3 引入
+# playlist_manager 用法后首次暴露。
+list(REMOVE_ITEM FB2K_PFC_CPP ${FB2K_SDK_ROOT}/pfc/pfc-fb2k-hooks.cpp)
+
 # --- foobar2000/SDK ---
 file(GLOB FB2K_SDK_CPP CONFIGURE_DEPENDS ${FB2K_SDK_ROOT}/foobar2000/SDK/*.cpp)
 file(GLOB FB2K_SDK_OBJC CONFIGURE_DEPENDS ${FB2K_SDK_ROOT}/foobar2000/SDK/*.mm ${FB2K_SDK_ROOT}/foobar2000/SDK/*.m)
