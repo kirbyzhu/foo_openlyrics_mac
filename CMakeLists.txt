@@ -35,6 +35,8 @@ add_library(openlyrics_core STATIC
   extensions/foo_openlyrics_mac/core/matching/Matcher.cpp
   extensions/foo_openlyrics_mac/core/pipeline/SearchCoordinator.cpp
   extensions/foo_openlyrics_mac/core/search/PlaylistSearchMatcher.cpp
+  extensions/foo_openlyrics_mac/core/search/PinyinPolyphonic.cpp
+  extensions/foo_openlyrics_mac/core/search/PinyinCellBuilder.cpp
 )
 target_include_directories(openlyrics_core PUBLIC extensions/foo_openlyrics_mac/core)
 
@@ -141,6 +143,7 @@ add_executable(core_tests
   tests/test_search_coordinator.cpp
   tests/test_cancel_token.cpp
   tests/test_playlist_search_matcher.cpp
+  tests/test_pinyin_cell_builder.cpp
 )
 target_link_libraries(core_tests PRIVATE openlyrics_core GTest::gtest_main)
 
