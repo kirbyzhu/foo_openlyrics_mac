@@ -95,7 +95,9 @@
 }
 
 - (void)refilter {
-    std::string q = self.searchField.stringValue.lowercaseString.UTF8String ?: "";
+    NSString *raw = self.searchField.stringValue.lowercaseString;
+    NSString *stripped = [[raw componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] componentsJoinedByString:@""];
+    std::string q = stripped.UTF8String ?: "";
     if (self.snapshot) {
         _hits = openlyrics::matchPlaylist([self.snapshot records], q);
     } else {

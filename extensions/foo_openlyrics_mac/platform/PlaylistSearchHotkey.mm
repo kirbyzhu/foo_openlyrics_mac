@@ -12,11 +12,10 @@ public:
         if (g_monitor != nil) return;
         g_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
                                                           handler:^NSEvent *(NSEvent *event) {
-            BOOL isF3 = (event.keyCode == 99);
             BOOL isCmdF = (event.modifierFlags & NSEventModifierFlagCommand) &&
                           (event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagControl)) == 0 &&
                           [event.charactersIgnoringModifiers.lowercaseString isEqualToString:@"f"];
-            if (isF3 || isCmdF) {
+            if (isCmdF) {
                 [[PlaylistSearchController shared] showOrFocus];
                 return nil;  // 吞掉事件，覆盖宿主处理
             }

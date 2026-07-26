@@ -13,7 +13,7 @@ public:
     unsigned get_num_items() override { return 1; }
 
     void get_item_name(unsigned, pfc::string_base &out) override {
-        out = "搜索定位歌曲  (F3 / ⌘F)";
+        out = "搜索定位歌曲  (⌘F)";
     }
 
     void context_command(unsigned, metadb_handle_list_cref, const GUID &) override {
