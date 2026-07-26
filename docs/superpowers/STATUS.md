@@ -60,9 +60,15 @@ cmake --build build --target foo_openlyrics && bash Scripts/install-component.sh
 
 ## 四、后续路线图
 
-计划一至八均已完成。后续迭代方向：
-- **计划八后续拓展（待定）**：翻译/双语歌词并排显示、Mini 模式（单行紧凑面板）。
-- **计划九（待定）**：Spotify/Apple Music 等流媒体源、Last.fm scrobbling 回调、歌词社区贡献上传。
+计划一至八核心功能均已完成，288 项单元测试全部通过。
+
+- **已完成核心功能**：
+  - 计划一至七：核心框架、界面面板、在线/本地五级源（LrcLib/NetEase/QQ）、搜索与微调、桌面歌词、播放列表 Cmd+F 搜索定位。
+  - 计划八：逐字高亮（Karaoke / YRC）音节解析与动态富文本高亮、按单词边界智能换行（Word Wrapping）。
+- **后续可选拓展**：
+  - 双语歌词 / 翻译并排显示。
+  - Mini 模式（单行紧凑面板）。
+  - 流媒体集成（Spotify/Apple Music）/ Last.fm / 社区上传（非重点需求）。
 
 ## 五、遗留 Minor 待办（非阻塞，可顺手清）
 
