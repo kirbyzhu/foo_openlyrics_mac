@@ -5,7 +5,7 @@
 
 ## 背景
 
-foobar2000 主界面缺少快速定位当前播放列表内歌曲的手段。用户希望：在活动播放列表中做模糊查询，按快捷键（F3 或 Cmd+F）弹出搜索框，输入后即时过滤，回车定位到对应歌曲；并在歌单右键菜单中提供入口且标注键位；模糊匹配支持中文拼音，含多音字。
+foobar2000 主界面缺少快速定位当前播放列表内歌曲的手段。用户希望：在活动播放列表中做模糊查询，按快捷键 Cmd+F 弹出搜索框，输入后即时过滤，回车定位到对应歌曲；并在歌单右键菜单中提供入口且标注键位；模糊匹配支持中文拼音，含多音字。
 
 组件现有形态：一个 `ui_element_mac` 歌词面板 + 偏好页 + `play_callback_static` 桥（见 `platform/component_entry.mm`、`platform/PlaybackBridge.mm`）。本功能与歌词无关，但并入同一 `foo_openlyrics` bundle。
 
@@ -19,15 +19,15 @@ SDK 能力（`SDK-2025-03-07`）已核实：
 
 ## 目标
 
-- F3 与 Cmd+F 均弹出/聚焦悬浮搜索框；Esc 或失焦关闭。
+- Cmd+F 弹出/聚焦悬浮搜索框；Esc 或失焦关闭。
 - 搜索**当前活动播放列表**，即时过滤，结果列表上下键选择，回车在列表中聚焦+选中+滚动可见（不自动播放）。
 - 匹配 title/artist/album 三字段，大小写不敏感的子序列（模糊）匹配；中文支持全拼与首字母，含多音字。
-- 歌单右键菜单提供入口，显示名标注键位 `(F3 / ⌘F)`。
+- 歌单右键菜单提供入口，显示名标注键位 `(⌘F)`。
 - core 匹配逻辑纯 C++、gtest 覆盖，含多音字用例。
 
 ## 非目标
 
-- 键位不做偏好可配，硬编码 F3 + Cmd+F（YAGNI，后续可加）。
+- 键位不做偏好可配，硬编码 Cmd+F（YAGNI，后续可加）。
 - 回车不播放（仅定位）。
 - 不跨播放列表、不搜媒体库。
 - 多音字表覆盖常用集，不追求全量字典。
@@ -103,7 +103,7 @@ core 不调用任何 Core Foundation，只吃已构建好的 `SearchRecord`。
 `platform/PlaylistSearchContextMenu.mm`
 
 - 注册 `contextmenu_item_simple`（`FB2K_SERVICE_FACTORY`），单项。
-- `context_get_display` / `get_item_name` 返回 `搜索定位歌曲  (F3 / ⌘F)`。
+- `context_get_display` / `get_item_name` 返回 `搜索定位歌曲  (⌘F)`。
 - 执行回调忽略传入的 `metadb_handle_list`，`dispatch_async` 主线程调用 `PlaylistSearchController` 打开搜索框。
 - `get_item_guid` 分配新 GUID；`get_item_default_path` 置根或组件分组。
 
@@ -121,7 +121,7 @@ core 不调用任何 Core Foundation，只吃已构建好的 `SearchRecord`。
 `ui/PlaylistSearchHotkey.mm`
 
 - `initquit` 服务（`initquit_factory_t`）。`on_init` 中 `dispatch_async` 主线程装 `+[NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:]`。
-- 判定：keyCode 命中 F3，或 `NSEventModifierFlagCommand` + 字符 `f`/`F`。命中则显示/聚焦 `PlaylistSearchController` 并返回 `nil` 吞掉事件（覆盖宿主对 Cmd+F 的处理）；否则原样返回事件透传。
+- 判定：`NSEventModifierFlagCommand` + 字符 `f`/`F`。命中则显示/聚焦 `PlaylistSearchController` 并返回 `nil` 吞掉事件（覆盖宿主对 Cmd+F 的处理）；否则原样返回事件透传。
 - `on_quit` 移除监听。
 - 监听句柄保存在文件内静态变量。
 
@@ -132,7 +132,7 @@ core 不调用任何 Core Foundation，只吃已构建好的 `SearchRecord`。
 ## 数据流
 
 ```
-按 F3/Cmd+F（NSEvent 监听）或右键菜单
+按 Cmd+F（NSEvent 监听）或右键菜单
   → PlaylistSearchController 打开
   → PlaylistSearchBridge 快照活动列表（含拼音 cell + handle）
   → 用户输入 → matchPlaylist 打分过滤 → 结果表
@@ -156,7 +156,7 @@ core 不调用任何 Core Foundation，只吃已构建好的 `SearchRecord`。
   - 多音字：`行` cell 候选 {hang,xing}、首字母 {h,x}；查询 `yinhang`/`yinxing`（银行）全拼命中，`yh`/`yx` 首字母命中。
   - 空 query 返回全部、保持原序。
 - **platform 拼音归一化**：可纯化部分（去声调、取首字母、cell 构建对齐）尽量下沉为可测逻辑；`CFStringTransform` 调用为 platform 薄层，靠手动/集成验证。
-- **手动真机**：F3/Cmd+F 弹框、右键菜单入口与键位提示、即时过滤、回车定位不播放、Esc/失焦关闭、大列表性能。
+- **手动真机**：Cmd+F 弹框、右键菜单入口与键位提示、即时过滤、回车定位不播放、Esc/失焦关闭、大列表性能。
 
 ## 打包
 
