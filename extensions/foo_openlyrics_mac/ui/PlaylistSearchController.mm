@@ -150,15 +150,21 @@
 // 搜索框内截获方向键/回车/Esc
 - (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)sel {
     if (sel == @selector(moveDown:)) {
+        if (_hits.empty()) return YES;
         NSInteger next = MIN(self.resultTable.selectedRow + 1, (NSInteger)_hits.size() - 1);
-        if (next >= 0) [self.resultTable selectRowIndexes:[NSIndexSet indexSetWithIndex:next] byExtendingSelection:NO];
-        [self.resultTable scrollRowToVisible:next];
+        if (next >= 0 && next < (NSInteger)_hits.size()) {
+            [self.resultTable selectRowIndexes:[NSIndexSet indexSetWithIndex:next] byExtendingSelection:NO];
+            [self.resultTable scrollRowToVisible:next];
+        }
         return YES;
     }
     if (sel == @selector(moveUp:)) {
+        if (_hits.empty()) return YES;
         NSInteger prev = MAX(self.resultTable.selectedRow - 1, 0);
-        [self.resultTable selectRowIndexes:[NSIndexSet indexSetWithIndex:prev] byExtendingSelection:NO];
-        [self.resultTable scrollRowToVisible:prev];
+        if (prev >= 0 && prev < (NSInteger)_hits.size()) {
+            [self.resultTable selectRowIndexes:[NSIndexSet indexSetWithIndex:prev] byExtendingSelection:NO];
+            [self.resultTable scrollRowToVisible:prev];
+        }
         return YES;
     }
     if (sel == @selector(insertNewline:)) { [self locateSelected]; return YES; }
