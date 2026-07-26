@@ -79,6 +79,8 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/ui/PlaylistSearchController.mm
     # Plan 8 Task 5：快捷键监听（initquit + NSEvent 本地监听）。
     extensions/foo_openlyrics_mac/platform/PlaylistSearchHotkey.mm
+    # Plan 8 Task 6：歌单右键菜单入口。
+    extensions/foo_openlyrics_mac/platform/PlaylistSearchContextMenu.mm
   )
   set_target_properties(foo_openlyrics PROPERTIES
     PREFIX ""
@@ -101,6 +103,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/SDK-2025-03-07)
     extensions/foo_openlyrics_mac/platform/PlaylistSearchBridge.mm
     extensions/foo_openlyrics_mac/ui/PlaylistSearchController.mm
     extensions/foo_openlyrics_mac/platform/PlaylistSearchHotkey.mm
+    extensions/foo_openlyrics_mac/platform/PlaylistSearchContextMenu.mm
     PROPERTIES COMPILE_FLAGS "-fobjc-arc"
   )
   target_include_directories(foo_openlyrics PRIVATE
