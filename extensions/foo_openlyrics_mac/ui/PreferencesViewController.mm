@@ -10,6 +10,13 @@ static NSString *const kDragDropType = @"foo_openlyrics.source_row";
 static const CGFloat kMinPanelWidth = 200.0;
 static const CGFloat kMinPanelHeight = 60.0;
 
+// 顶部对齐的容器，供滚动视图承载纵向排布的设置行
+@interface FlippedView : NSView
+@end
+@implementation FlippedView
+- (BOOL)isFlipped { return YES; }
+@end
+
 @interface PreferencesViewController () <NSTableViewDataSource, NSTableViewDelegate>
 @property(nonatomic, assign) openlyrics::AppConfig config;
 @property(nonatomic, strong) NSTableView *sourceTable;
@@ -54,7 +61,6 @@ static const CGFloat kMinPanelHeight = 60.0;
     tabs.translatesAutoresizingMaskIntoConstraints = NO;
 
     [tabs addTabViewItem:[self sourcesTab]];
-    [tabs addTabViewItem:[self displayTab]];
     [tabs addTabViewItem:[self advancedTab]];
     [tabs addTabViewItem:[self deskLyricsTab]];
 
@@ -120,138 +126,6 @@ static const CGFloat kMinPanelHeight = 60.0;
     return [NSString stringWithUTF8String:key.c_str()];
 }
 
-#pragma mark - Display Tab
-
-- (NSTabViewItem *)displayTab {
-    NSTabViewItem *item = [[NSTabViewItem alloc] initWithIdentifier:@"display"];
-    item.label = @"显示";
-
-    NSView *v = [[NSView alloc] initWithFrame:NSZeroRect];
-
-    // 字体
-    NSTextField *fontCap = [NSTextField labelWithString:@"字体："];
-    fontCap.translatesAutoresizingMaskIntoConstraints = NO;
-    [v addSubview:fontCap];
-
-    NSButton *fontBtn = [NSButton buttonWithTitle:@"选择…" target:self action:@selector(chooseFont:)];
-    fontBtn.translatesAutoresizingMaskIntoConstraints = NO;
-    [v addSubview:fontBtn];
-
-    NSTextField *fontLbl = [NSTextField labelWithString:@""];
-    fontLbl.translatesAutoresizingMaskIntoConstraints = NO;
-    [v addSubview:fontLbl];
-    self.fontLabel = fontLbl;
-
-    // 颜色
-    NSTextField *normalCap = [NSTextField labelWithString:@"常规色："];
-    normalCap.translatesAutoresizingMaskIntoConstraints = NO;
-    [v addSubview:normalCap];
-
-    NSColorWell *normalWell = [NSColorWell new];
-    normalWell.translatesAutoresizingMaskIntoConstraints = NO;
-    normalWell.target = self;
-    normalWell.action = @selector(colorChanged:);
-    [v addSubview:normalWell];
-    self.normalColorWell = normalWell;
-
-    NSTextField *hlCap = [NSTextField labelWithString:@"高亮色："];
-    hlCap.translatesAutoresizingMaskIntoConstraints = NO;
-    [v addSubview:hlCap];
-
-    NSColorWell *hlWell = [NSColorWell new];
-    hlWell.translatesAutoresizingMaskIntoConstraints = NO;
-    hlWell.target = self;
-    hlWell.action = @selector(colorChanged:);
-    [v addSubview:hlWell];
-    self.highlightColorWell = hlWell;
-
-    // 对齐
-    NSTextField *alignCap = [NSTextField labelWithString:@"对齐："];
-    alignCap.translatesAutoresizingMaskIntoConstraints = NO;
-    [v addSubview:alignCap];
-
-    NSPopUpButton *alignPop = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [alignPop addItemsWithTitles:@[@"居中", @"左对齐", @"右对齐"]];
-    alignPop.translatesAutoresizingMaskIntoConstraints = NO;
-    alignPop.target = self;
-    alignPop.action = @selector(alignmentChanged:);
-    [v addSubview:alignPop];
-    self.alignmentPopup = alignPop;
-
-    // 行距
-    NSTextField *spCap = [NSTextField labelWithString:@"行距："];
-    spCap.translatesAutoresizingMaskIntoConstraints = NO;
-    [v addSubview:spCap];
-
-    NSSlider *spSlider = [[NSSlider alloc] initWithFrame:NSZeroRect];
-    spSlider.minValue = 0;
-    spSlider.maxValue = 20;
-    spSlider.translatesAutoresizingMaskIntoConstraints = NO;
-    spSlider.target = self;
-    spSlider.action = @selector(lineSpacingChanged:);
-    [v addSubview:spSlider];
-    self.lineSpacingSlider = spSlider;
-
-    NSTextField *spLbl = [NSTextField labelWithString:@"0"];
-    spLbl.translatesAutoresizingMaskIntoConstraints = NO;
-    [v addSubview:spLbl];
-    self.lineSpacingLabel = spLbl;
-
-    // 逐字高亮
-    NSButton *whCheck = [NSButton checkboxWithTitle:@"启用逐字高亮" target:self action:@selector(wordHighlightChanged:)];
-    whCheck.translatesAutoresizingMaskIntoConstraints = NO;
-    [v addSubview:whCheck];
-    self.wordHighlightCheck = whCheck;
-
-    // 预览
-    NSTextField *preCap = [NSTextField labelWithString:@"预览："];
-    preCap.translatesAutoresizingMaskIntoConstraints = NO;
-    [v addSubview:preCap];
-
-    NSTextField *preview = [NSTextField labelWithString:@"[00:12.34] 歌词行预览"];
-    preview.alignment = NSTextAlignmentCenter;
-    preview.translatesAutoresizingMaskIntoConstraints = NO;
-    [v addSubview:preview];
-    self.previewLabel = preview;
-
-    NSDictionary *views = NSDictionaryOfVariableBindings(fontCap, fontBtn, fontLbl,
-        normalCap, normalWell, hlCap, hlWell, alignCap, alignPop,
-        spCap, spSlider, spLbl, whCheck, preCap, preview);
-    for (NSView *sv in views.allValues) {
-        [sv setContentHuggingPriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationHorizontal];
-    }
-
-    [v addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
-        @"H:|-[fontCap]-[fontBtn]-[fontLbl(<=200)]" options:0 metrics:nil views:views]];
-    [v addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
-        @"H:|-[normalCap]-[normalWell(44)]-40-[hlCap]-[hlWell(44)]" options:0 metrics:nil views:views]];
-    [v addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
-        @"H:|-[alignCap]-[alignPop(120)]" options:0 metrics:nil views:views]];
-    [v addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
-        @"H:|-[spCap]-[spSlider]-[spLbl(36)]-|" options:0 metrics:nil views:views]];
-    [v addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
-        @"H:|-[whCheck]-|" options:0 metrics:nil views:views]];
-    [v addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
-        @"H:|-[preCap]-[preview]-|" options:0 metrics:nil views:views]];
-
-    [v addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
-        @"V:|-[fontCap]-[normalCap]-[alignCap]-[spCap]-[whCheck]-[preCap]" options:NSLayoutFormatAlignAllLeading metrics:nil views:views]];
-    [v addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
-        @"V:[fontBtn]-[normalWell]-[alignPop]-[spSlider]-[whCheck]-[preview]" options:NSLayoutFormatAlignAllLeft metrics:nil views:views]];
-    [v addConstraint:[fontLbl.centerYAnchor constraintEqualToAnchor:fontBtn.centerYAnchor]];
-    [v addConstraint:[hlWell.centerYAnchor constraintEqualToAnchor:normalWell.centerYAnchor]];
-    [v addConstraint:[fontBtn.centerYAnchor constraintEqualToAnchor:fontCap.centerYAnchor]];
-    [v addConstraint:[normalWell.centerYAnchor constraintEqualToAnchor:normalCap.centerYAnchor]];
-    [v addConstraint:[hlCap.centerYAnchor constraintEqualToAnchor:normalCap.centerYAnchor]];
-    [v addConstraint:[alignPop.centerYAnchor constraintEqualToAnchor:alignCap.centerYAnchor]];
-    [v addConstraint:[spSlider.centerYAnchor constraintEqualToAnchor:spCap.centerYAnchor]];
-    [v addConstraint:[spLbl.centerYAnchor constraintEqualToAnchor:spCap.centerYAnchor]];
-    [v addConstraint:[preview.centerYAnchor constraintEqualToAnchor:preCap.centerYAnchor]];
-
-    item.view = v;
-    return item;
-}
-
 #pragma mark - Advanced Tab
 
 - (NSTabViewItem *)advancedTab {
@@ -312,7 +186,14 @@ static const CGFloat kMinPanelHeight = 60.0;
     NSTabViewItem *item = [[NSTabViewItem alloc] initWithIdentifier:@"deskLyrics"];
     item.label = @"桌面歌词";
 
-    NSView *v = [[NSView alloc] initWithFrame:NSZeroRect];
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    scroll.hasVerticalScroller = YES;
+    scroll.drawsBackground = NO;
+    // 作为 NSTabViewItem.view，尺寸由 NSTabView 通过 autoresizing 设定，
+    // 保留 translatesAutoresizingMaskIntoConstraints=YES，否则整页零尺寸显示为空白
+
+    FlippedView *v = [[FlippedView alloc] initWithFrame:NSZeroRect];
+    v.translatesAutoresizingMaskIntoConstraints = NO;
     NSView *lastRow = nil;
 
     auto addGridRow = [&](NSView *label, NSView *control) {
@@ -329,6 +210,92 @@ static const CGFloat kMinPanelHeight = 60.0;
         lastRow = row;
         return row;
     };
+
+    auto addSectionHeader = [&](NSString *title) {
+        NSTextField *hdr = [NSTextField labelWithString:title];
+        hdr.font = [NSFont boldSystemFontOfSize:13];
+        hdr.translatesAutoresizingMaskIntoConstraints = NO;
+        [v addSubview:hdr];
+        [NSLayoutConstraint activateConstraints:@[
+            [hdr.leadingAnchor constraintEqualToAnchor:v.leadingAnchor constant:16],
+            lastRow ? [hdr.topAnchor constraintEqualToAnchor:lastRow.bottomAnchor constant:18]
+                    : [hdr.topAnchor constraintEqualToAnchor:v.topAnchor constant:16],
+        ]];
+        lastRow = hdr;
+    };
+
+    // ==== 显示（主面板歌词）====
+    addSectionHeader(@"显示");
+
+    // 字体
+    NSButton *fontBtn = [NSButton buttonWithTitle:@"选择…" target:self action:@selector(chooseFont:)];
+    NSTextField *fontLbl = [NSTextField labelWithString:@""];
+    self.fontLabel = fontLbl;
+    NSStackView *fontRow = [NSStackView stackViewWithViews:@[fontBtn, fontLbl]];
+    fontRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    fontRow.spacing = 8;
+    addGridRow([NSTextField labelWithString:@"字体："], fontRow);
+
+    // 常规色
+    NSColorWell *dispNormalWell = [NSColorWell new];
+    dispNormalWell.target = self;
+    dispNormalWell.action = @selector(colorChanged:);
+    self.normalColorWell = dispNormalWell;
+    addGridRow([NSTextField labelWithString:@"常规色："], dispNormalWell);
+
+    // 高亮色
+    NSColorWell *dispHlWell = [NSColorWell new];
+    dispHlWell.target = self;
+    dispHlWell.action = @selector(colorChanged:);
+    self.highlightColorWell = dispHlWell;
+    addGridRow([NSTextField labelWithString:@"高亮色："], dispHlWell);
+
+    // 对齐
+    NSPopUpButton *dispAlignPop = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [dispAlignPop addItemsWithTitles:@[@"居中", @"左对齐", @"右对齐"]];
+    dispAlignPop.target = self;
+    dispAlignPop.action = @selector(alignmentChanged:);
+    self.alignmentPopup = dispAlignPop;
+    addGridRow([NSTextField labelWithString:@"对齐："], dispAlignPop);
+
+    // 行距
+    NSSlider *dispSpSlider = [[NSSlider alloc] initWithFrame:NSZeroRect];
+    dispSpSlider.minValue = 0;
+    dispSpSlider.maxValue = 20;
+    dispSpSlider.target = self;
+    dispSpSlider.action = @selector(lineSpacingChanged:);
+    self.lineSpacingSlider = dispSpSlider;
+
+    NSTextField *dispSpLbl = [NSTextField labelWithString:@"0"];
+    self.lineSpacingLabel = dispSpLbl;
+
+    NSView *dispSpRow = [[NSView alloc] initWithFrame:NSZeroRect];
+    dispSpSlider.translatesAutoresizingMaskIntoConstraints = NO;
+    dispSpLbl.translatesAutoresizingMaskIntoConstraints = NO;
+    [dispSpRow addSubview:dispSpSlider];
+    [dispSpRow addSubview:dispSpLbl];
+    [NSLayoutConstraint activateConstraints:@[
+        [dispSpSlider.leadingAnchor constraintEqualToAnchor:dispSpRow.leadingAnchor],
+        [dispSpSlider.centerYAnchor constraintEqualToAnchor:dispSpRow.centerYAnchor],
+        [dispSpSlider.widthAnchor constraintEqualToConstant:160],
+        [dispSpLbl.leadingAnchor constraintEqualToAnchor:dispSpSlider.trailingAnchor constant:8],
+        [dispSpLbl.centerYAnchor constraintEqualToAnchor:dispSpRow.centerYAnchor],
+        [dispSpRow.heightAnchor constraintEqualToConstant:24],
+    ]];
+    addGridRow([NSTextField labelWithString:@"行距："], dispSpRow);
+
+    // 逐字高亮
+    NSButton *whCheck = [NSButton checkboxWithTitle:@"启用逐字高亮" target:self action:@selector(wordHighlightChanged:)];
+    self.wordHighlightCheck = whCheck;
+    addGridRow([NSTextField labelWithString:@""], whCheck);
+
+    // 预览
+    NSTextField *preview = [NSTextField labelWithString:@"[00:12.34] 歌词行预览"];
+    self.previewLabel = preview;
+    addGridRow([NSTextField labelWithString:@"预览："], preview);
+
+    // ==== 桌面歌词 ====
+    addSectionHeader(@"桌面歌词");
 
     // 启用
     NSButton *enabledCheck = [NSButton checkboxWithTitle:@"启用桌面歌词" target:self action:@selector(deskEnabledChanged:)];
@@ -432,7 +399,20 @@ static const CGFloat kMinPanelHeight = 60.0;
     self.deskWindowHeightField = winHF;
     addGridRow([NSTextField labelWithString:@"窗口高度："], winHF);
 
-    item.view = v;
+    // 末行底部约束，确定内容视图高度
+    if (lastRow) {
+        [lastRow.bottomAnchor constraintEqualToAnchor:v.bottomAnchor constant:-16].active = YES;
+    }
+
+    scroll.documentView = v;
+    [NSLayoutConstraint activateConstraints:@[
+        [v.leadingAnchor constraintEqualToAnchor:scroll.contentView.leadingAnchor],
+        [v.trailingAnchor constraintEqualToAnchor:scroll.contentView.trailingAnchor],
+        [v.topAnchor constraintEqualToAnchor:scroll.contentView.topAnchor],
+        [v.widthAnchor constraintEqualToAnchor:scroll.contentView.widthAnchor],
+    ]];
+
+    item.view = scroll;
     return item;
 }
 
