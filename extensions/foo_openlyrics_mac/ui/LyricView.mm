@@ -299,7 +299,10 @@ static NSTextAlignment alignmentFromString(const std::string& s) {
     }
     const double lineH = (idx >= 0 && idx < (NSInteger)_rowHeights.count)
         ? [_rowHeights[idx] doubleValue] : 0;
-    const double centerLineY = yBefore + lineH * result.progress + lineH / 2.0;
+    // 居中锚点取当前行本身的中心，不再叠加 result.progress 的行内漂移。
+    // 否则当前行会在自身时长内向上移动整整一个行高，短窗口下高亮未完就滚出可视区。
+    // 切行时的平滑过渡由缓动定时器（kScrollEasing）负责。
+    const double centerLineY = yBefore + lineH / 2.0;
     const double lyricHeight = self.bounds.size.height - [self titleHeight];
     return centerLineY - lyricHeight / 2.0;
 }
